@@ -1,0 +1,45 @@
+{
+  "name": "thirst-metrics-texas",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "ingest:all": "tsx scripts/ingest-all.ts",
+    "ingest:counties": "tsx scripts/ingest-counties.ts",
+    "ingest:metroplexes": "tsx scripts/ingest-metroplexes.ts",
+    "ingest:sales-tax": "tsx scripts/ingest-sales-tax.ts",
+    "ingest:enrichments": "tsx scripts/ingest-enrichments.ts",
+    "ingest:beverage-receipts": "tsx scripts/ingest-beverage-receipts.ts",
+    "init:duckdb": "tsx scripts/init-duckdb.ts",
+    "test:duckdb": "tsx scripts/test-duckdb.ts"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "^1.4.4-r.1",
+    "@duckdb/node-bindings": "^1.4.4-r.1",
+    "@mapbox/mapbox-sdk": "^0.15.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "browser-image-compression": "^2.0.2",
+    "chalk": "^5.3.0",
+    "cli-progress": "^3.2.0",
+    "date-fns": "^3.6.0",
+    "mapbox-gl": "^3.6.0",
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^2.12.0",
+    "tesseract.js": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "xlsx": "^0.18.5"
+  }
+}
