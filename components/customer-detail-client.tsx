@@ -130,6 +130,7 @@ export default function CustomerDetailClient(props: CustomerDetailClientProps) {
               }}
               showForm={showActivityForm}
               onCloseForm={() => setShowActivityForm(false)}
+              onOpenForm={() => setShowActivityForm(true)}
             />
           </div>
         </div>

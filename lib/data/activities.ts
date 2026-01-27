@@ -4,7 +4,17 @@
  */
 
 import { createServerClient } from '../supabase/server';
-import { createServiceClient } from '../supabase/server';
+
+export interface ActivityPhoto {
+  id: string;
+  activity_id: string;
+  photo_url: string;
+  file_size_bytes?: number | null;
+  photo_type?: string | null;
+  ocr_text?: string | null;
+  ocr_processed_at?: string | null;
+  uploaded_at?: string;
+}
 
 export interface SalesActivity {
   id?: string;
@@ -45,6 +55,7 @@ export interface SalesActivity {
   gps_accuracy_meters?: number | null;
   created_at?: string;
   updated_at?: string;
+  activity_photos?: ActivityPhoto[];
 }
 
 /**
@@ -114,14 +125,14 @@ export async function getUserActivities(userId: string, filters?: {
 }
 
 /**
- * Get activities for a customer (permit number)
+ * Get activities for a customer (permit number), with nested activity_photos
  */
 export async function getCustomerActivities(permitNumber: string): Promise<SalesActivity[]> {
   const supabase = await createServerClient();
   
   const { data, error } = await supabase
     .from('sales_activities')
-    .select('*')
+    .select('*, activity_photos(*)')
     .eq('tabc_permit_number', permitNumber)
     .order('activity_date', { ascending: false });
   

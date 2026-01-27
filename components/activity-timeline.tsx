@@ -1,6 +1,6 @@
 /**
  * Activity Timeline Component
- * Displays activities and activity form
+ * Displays activities (with photos, summary, next action, product interest) and activity form
  */
 
 'use client';
@@ -10,6 +10,19 @@ import { format, isValid, parseISO } from 'date-fns';
 import { SalesActivity } from '@/lib/data/activities';
 import ActivityForm from './activity-form';
 
+function formatActivityDate(dateStr: string): string {
+  try {
+    let date = parseISO(dateStr);
+    if (!isValid(date)) {
+      date = new Date(dateStr);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+    }
+    return format(date, 'MMM d, yyyy');
+  } catch {
+    return 'Invalid Date';
+  }
+}
+
 interface ActivityTimelineProps {
   activities: SalesActivity[];
   permitNumber: string;
@@ -17,10 +30,12 @@ interface ActivityTimelineProps {
   onActivityCreated: () => void;
   showForm: boolean;
   onCloseForm: () => void;
+  /** When provided, empty state shows "Log first activity" and calls this to open the form */
+  onOpenForm?: () => void;
 }
 
 export default function ActivityTimeline(props: ActivityTimelineProps) {
-  const { activities, permitNumber, userId, onActivityCreated, showForm, onCloseForm } = props;
+  const { activities, permitNumber, userId, onActivityCreated, showForm, onCloseForm, onOpenForm } = props;
   
   const getActivityTypeIcon = (type: string) => {
     switch (type) {
@@ -56,7 +71,16 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
   if (activities.length === 0) {
     return (
       <div style={styles.empty}>
-        <p>No activities recorded yet.</p>
+        <p style={{ marginBottom: '12px' }}>No activities recorded yet.</p>
+        {onOpenForm && (
+          <button
+            type="button"
+            onClick={onOpenForm}
+            style={styles.addButton}
+          >
+            Log first activity
+          </button>
+        )}
       </div>
     );
   }
@@ -64,73 +88,84 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
   return (
     <div>
       <div style={styles.timeline}>
-        {activities.map((activity) => (
-          <div key={activity.id} style={styles.activityItem}>
-            <div style={styles.activityHeader}>
-              <span style={styles.icon}>{getActivityTypeIcon(activity.activity_type)}</span>
-              <div style={styles.activityInfo}>
-                <div style={styles.activityType}>
-                  {activity.activity_type.charAt(0).toUpperCase() + activity.activity_type.slice(1)}
+        {activities.map((activity) => {
+          const photos = Array.isArray(activity.activity_photos) ? activity.activity_photos : [];
+          return (
+            <div key={activity.id} style={styles.activityItem}>
+              <div style={styles.activityHeader}>
+                <span style={styles.icon}>{getActivityTypeIcon(activity.activity_type)}</span>
+                <div style={styles.activityInfo}>
+                  <div style={styles.activityType}>
+                    {activity.activity_type.charAt(0).toUpperCase() + activity.activity_type.slice(1)}
+                  </div>
+                  <div style={styles.activityDate}>
+                    {formatActivityDate(activity.activity_date)}
+                  </div>
                 </div>
-                <div style={styles.activityDate}>
-                  {(() => {
-                    try {
-                      let date = parseISO(activity.activity_date);
-                      if (!isValid(date)) {
-                        date = new Date(activity.activity_date);
-                        if (isNaN(date.getTime())) {
-                          return 'Invalid Date';
-                        }
-                      }
-                      return format(date, 'MMM d, yyyy');
-                    } catch (error) {
-                      return 'Invalid Date';
-                    }
-                  })()}
-                </div>
+                {activity.outcome && (
+                  <div
+                    style={{
+                      ...styles.outcomeBadge,
+                      background: getOutcomeColor(activity.outcome),
+                    }}
+                  >
+                    {activity.outcome}
+                  </div>
+                )}
               </div>
-              {activity.outcome && (
-                <div
-                  style={{
-                    ...styles.outcomeBadge,
-                    background: getOutcomeColor(activity.outcome),
-                  }}
-                >
-                  {activity.outcome}
+              {activity.notes && (
+                <div style={styles.notes}>{activity.notes}</div>
+              )}
+              {activity.conversation_summary && (
+                <div style={styles.intel}>
+                  <strong>Summary:</strong> {activity.conversation_summary}
+                </div>
+              )}
+              {activity.product_interest && activity.product_interest.length > 0 && (
+                <div style={styles.intel}>
+                  <strong>Product interest:</strong>{' '}
+                  {activity.product_interest.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(', ')}
+                </div>
+              )}
+              {activity.next_action && (
+                <div style={styles.nextAction}>
+                  <strong>Next action:</strong> {activity.next_action}
+                </div>
+              )}
+              {activity.contact_name && (
+                <div style={styles.contactInfo}>
+                  <strong>Contact:</strong> {activity.contact_name}
+                  {activity.contact_cell_phone && ` • ${activity.contact_cell_phone}`}
+                  {activity.contact_email && ` • ${activity.contact_email}`}
+                </div>
+              )}
+              {activity.next_followup_date && (
+                <div style={styles.followup}>
+                  <strong>Next follow-up:</strong> {formatActivityDate(activity.next_followup_date)}
+                </div>
+              )}
+              {photos.length > 0 && (
+                <div style={styles.photos}>
+                  {photos.slice(0, 5).map((p) => (
+                    <a
+                      key={p.id}
+                      href={p.photo_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={styles.photoThumb}
+                      title={p.photo_type || 'Photo'}
+                    >
+                      <img src={p.photo_url} alt="" style={styles.photoImg} />
+                    </a>
+                  ))}
+                  {photos.length > 5 && (
+                    <span style={styles.photoMore}>+{photos.length - 5}</span>
+                  )}
                 </div>
               )}
             </div>
-            {activity.notes && (
-              <div style={styles.notes}>{activity.notes}</div>
-            )}
-            {activity.contact_name && (
-              <div style={styles.contactInfo}>
-                <strong>Contact:</strong> {activity.contact_name}
-                {activity.contact_cell_phone && ` • ${activity.contact_cell_phone}`}
-                {activity.contact_email && ` • ${activity.contact_email}`}
-              </div>
-            )}
-            {activity.next_followup_date && (
-              <div style={styles.followup}>
-                <strong>Next follow-up:</strong>{' '}
-                {(() => {
-                  try {
-                    let date = parseISO(activity.next_followup_date);
-                    if (!isValid(date)) {
-                      date = new Date(activity.next_followup_date);
-                      if (isNaN(date.getTime())) {
-                        return 'Invalid Date';
-                      }
-                    }
-                    return format(date, 'MMM d, yyyy');
-                  } catch (error) {
-                    return 'Invalid Date';
-                  }
-                })()}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -207,5 +242,42 @@ const styles = {
     marginTop: '8px',
     fontSize: '14px',
     color: '#667eea',
+  },
+  intel: {
+    marginTop: '8px',
+    fontSize: '14px',
+    color: '#555',
+    lineHeight: 1.4,
+  },
+  nextAction: {
+    marginTop: '8px',
+    fontSize: '14px',
+    color: '#333',
+    fontWeight: 500,
+  },
+  photos: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: '8px',
+    marginTop: '12px',
+    alignItems: 'center',
+  },
+  photoThumb: {
+    display: 'block',
+    width: '48px',
+    height: '48px',
+    borderRadius: '6px',
+    overflow: 'hidden',
+    border: '1px solid #ddd',
+    flexShrink: 0,
+  },
+  photoImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover' as const,
+  },
+  photoMore: {
+    fontSize: '13px',
+    color: '#666',
   },
 };

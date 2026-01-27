@@ -1,13 +1,20 @@
 /**
  * Activity Form Component
- * Full CRM activity logging form with all fields
+ * Full CRM activity logging form with all fields.
+ * Includes photo picker (compression + OCR), GPS capture, and availability.
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
-import PhotoUpload from './photo-upload';
+import imageCompression from 'browser-image-compression';
+import { supabase } from '@/lib/supabase/client';
+import { uploadActivityPhoto, type PhotoType } from '@/lib/activity-photos';
+
+const MAX_PHOTOS = typeof process.env.NEXT_PUBLIC_MAX_PHOTOS_PER_ACTIVITY === 'string'
+  ? Math.min(10, Math.max(1, parseInt(process.env.NEXT_PUBLIC_MAX_PHOTOS_PER_ACTIVITY, 10) || 5))
+  : 5;
 
 interface ActivityFormProps {
   permitNumber: string;
@@ -27,6 +34,7 @@ export default function ActivityForm(props: ActivityFormProps) {
     accuracy: number;
   } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -64,7 +72,9 @@ export default function ActivityForm(props: ActivityFormProps) {
     },
   });
   
-  const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
+  const [pendingPhotoType, setPendingPhotoType] = useState<PhotoType>('other');
+  const [photoUploadProgress, setPhotoUploadProgress] = useState<string | null>(null);
   
   // Capture GPS on mount
   useEffect(() => {
@@ -147,11 +157,21 @@ export default function ActivityForm(props: ActivityFormProps) {
       }
       
       const result = await response.json();
+      const activityId = result.activity?.id;
       
-      // Upload photos if any
-      if (uploadedPhotos.length > 0 && result.activity?.id) {
-        // Photos are already uploaded, just need to link them
-        // This will be handled by the photo upload component
+      if (activityId && pendingPhotos.length > 0) {
+        setPhotoUploadProgress(`Uploading ${pendingPhotos.length} photo(s)...`);
+        for (let i = 0; i < pendingPhotos.length; i++) {
+          setPhotoUploadProgress(`Photo ${i + 1} of ${pendingPhotos.length}...`);
+          await uploadActivityPhoto(
+            supabase,
+            activityId,
+            pendingPhotos[i],
+            permitNumber,
+            pendingPhotoType
+          );
+        }
+        setPhotoUploadProgress(null);
       }
       
       onSuccess();
@@ -181,6 +201,35 @@ export default function ActivityForm(props: ActivityFormProps) {
       ...formData,
       competitors_mentioned: competitors,
     });
+  };
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (pendingPhotos.length + files.length > MAX_PHOTOS) {
+      setError(`Maximum ${MAX_PHOTOS} photos per activity.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    setError(null);
+    const compressed: File[] = [];
+    for (const file of files) {
+      try {
+        const c = await imageCompression(file, {
+          maxSizeMB: 0.5,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+        });
+        compressed.push(c);
+      } catch {
+        compressed.push(file);
+      }
+    }
+    setPendingPhotos((prev) => [...prev, ...compressed]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removePendingPhoto = (index: number) => {
+    setPendingPhotos((prev) => prev.filter((_, i) => i !== index));
   };
   
   return (
@@ -464,12 +513,63 @@ export default function ActivityForm(props: ActivityFormProps) {
         </div>
       </div>
       
-      {/* Photo Upload - Note: Photos will be linked after activity is created */}
+      {/* Photo Upload - compression and OCR run when activity is saved */}
       <div style={styles.section}>
         <h3 style={styles.sectionTitle}>Photos (Optional)</h3>
         <p style={styles.helpText}>
-          You can add photos after saving the activity. Photos are automatically compressed and OCR processed.
+          Add up to {MAX_PHOTOS} photos. They will be compressed, uploaded, and OCR processed when you save.
         </p>
+        <div style={styles.field}>
+          <label style={styles.label}>Photo type</label>
+          <select
+            value={pendingPhotoType}
+            onChange={(e) => setPendingPhotoType(e.target.value as PhotoType)}
+            style={styles.select}
+          >
+            <option value="other">Other</option>
+            <option value="receipt">Receipt</option>
+            <option value="menu">Menu</option>
+            <option value="product_display">Product display</option>
+            <option value="shelf">Shelf</option>
+          </select>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handlePhotoSelect}
+          style={styles.fileInput}
+          disabled={loading || pendingPhotos.length >= MAX_PHOTOS}
+        />
+        {pendingPhotos.length > 0 && (
+          <div style={styles.photos}>
+            {pendingPhotos.map((file, index) => (
+              <div key={index} style={styles.photoItem}>
+                <img
+                  src={URL.createObjectURL(file)}
+                  alt={`Preview ${index + 1}`}
+                  style={styles.preview}
+                />
+                <div style={styles.photoMeta}>
+                  {(file.size / 1024).toFixed(1)} KB
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removePendingPhoto(index)}
+                  style={styles.removePhotoBtn}
+                  disabled={loading}
+                  aria-label="Remove photo"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {photoUploadProgress && (
+          <div style={styles.photoProgress}>{photoUploadProgress}</div>
+        )}
       </div>
       
       {/* Submit */}
@@ -629,5 +729,55 @@ const styles = {
     fontSize: '12px',
     color: '#999',
     marginTop: '8px',
+  },
+  fileInput: {
+    padding: '10px',
+    border: '1px dashed #ddd',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    marginTop: '8px',
+  },
+  photos: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+    gap: '12px',
+    marginTop: '12px',
+  },
+  photoItem: {
+    position: 'relative' as const,
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    overflow: 'hidden',
+  },
+  preview: {
+    width: '100%',
+    height: '100px',
+    objectFit: 'cover' as const,
+  },
+  photoMeta: {
+    padding: '4px 8px',
+    fontSize: '11px',
+    color: '#666',
+  },
+  removePhotoBtn: {
+    position: 'absolute' as const,
+    top: '4px',
+    right: '4px',
+    width: '22px',
+    height: '22px',
+    borderRadius: '50%',
+    background: 'rgba(0,0,0,0.6)',
+    color: 'white',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoProgress: {
+    marginTop: '12px',
+    fontSize: '14px',
+    color: '#667eea',
   },
 };
