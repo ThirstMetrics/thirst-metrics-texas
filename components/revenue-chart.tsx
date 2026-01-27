@@ -24,6 +24,10 @@ interface RevenueChartProps {
 }
 
 export default function RevenueChart({ data }: RevenueChartProps) {
+  if (typeof window !== 'undefined') {
+    console.log('Chart received data:', data);
+  }
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -32,15 +36,21 @@ export default function RevenueChart({ data }: RevenueChartProps) {
       maximumFractionDigits: 0,
     }).format(value);
   };
-  
-  // Format data for chart
-  const chartData = data.map((item) => ({
-    month: item.month,
-    total: item.total_receipts || 0,
-    liquor: item.liquor_receipts || 0,
-    wine: item.wine_receipts || 0,
-    beer: item.beer_receipts || 0,
-    cover: item.cover_charge_receipts || 0,
+
+  const safe = (v: unknown): number => {
+    if (typeof v === 'bigint') return Number(v);
+    if (typeof v === 'number' && !isNaN(v)) return v;
+    return 0;
+  };
+
+  // Format data for chart (match MonthlyRevenue field names)
+  const chartData = (data ?? []).map((item: MonthlyRevenue) => ({
+    month: typeof item.month === 'string' ? item.month : String(item.month ?? ''),
+    total: safe(item.total_receipts),
+    liquor: safe(item.liquor_receipts),
+    wine: safe(item.wine_receipts),
+    beer: safe(item.beer_receipts),
+    cover: safe(item.cover_charge_receipts),
   }));
   
   if (chartData.length === 0) {

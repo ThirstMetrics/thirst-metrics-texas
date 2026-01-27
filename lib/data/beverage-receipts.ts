@@ -59,7 +59,7 @@ export async function getCustomers(filters?: {
       MAX(m.location_city) as location_city,
       MAX(m.location_state) as location_state,
       MAX(m.location_zip) as location_zip,
-      MAX(m.location_county) as location_county,
+      COALESCE(MAX(c.county_name), MAX(m.location_county)) as location_county,
       MAX(m.location_county_code) as location_county_code,
       CAST(COALESCE(SUM(m.total_receipts), 0) AS DOUBLE) as total_revenue,
       CAST(COALESCE(SUM(m.wine_receipts), 0) AS DOUBLE) as wine_revenue,
@@ -72,6 +72,7 @@ export async function getCustomers(filters?: {
       MAX(e.industry_segment) as industry_segment
     FROM mixed_beverage_receipts m
     LEFT JOIN location_enrichments e ON m.tabc_permit_number = e.tabc_permit_number
+    LEFT JOIN counties c ON m.location_county_code = c.county_code
     WHERE 1=1
   `;
   
@@ -166,7 +167,7 @@ export async function getCustomerByPermit(permitNumber: string): Promise<Custome
       MAX(m.location_city) as location_city,
       MAX(m.location_state) as location_state,
       MAX(m.location_zip) as location_zip,
-      MAX(m.location_county) as location_county,
+      COALESCE(MAX(c.county_name), MAX(m.location_county)) as location_county,
       MAX(m.location_county_code) as location_county_code,
       CAST(COALESCE(SUM(m.total_receipts), 0) AS DOUBLE) as total_revenue,
       CAST(COALESCE(SUM(m.wine_receipts), 0) AS DOUBLE) as wine_revenue,
@@ -179,6 +180,7 @@ export async function getCustomerByPermit(permitNumber: string): Promise<Custome
       MAX(e.industry_segment) as industry_segment
     FROM mixed_beverage_receipts m
     LEFT JOIN location_enrichments e ON m.tabc_permit_number = e.tabc_permit_number
+    LEFT JOIN counties c ON m.location_county_code = c.county_code
     WHERE m.tabc_permit_number = ?
     GROUP BY m.tabc_permit_number, e.clean_dba_name
     LIMIT 1
@@ -195,38 +197,45 @@ export async function getCustomerByPermit(permitNumber: string): Promise<Custome
 }
 
 /**
- * Get monthly revenue history for a customer
+ * Get monthly revenue history for a customer.
+ * Uses location_month_key format {tabc_permit_number}_{YYYYMM} (e.g. MB722028_202512).
  */
 export async function getCustomerMonthlyRevenue(
   permitNumber: string,
   months: number = 12
 ): Promise<MonthlyRevenue[]> {
-  // Calculate start date in JavaScript (DuckDB doesn't support parameters in INTERVAL)
-  const startDate = new Date();
-  startDate.setMonth(startDate.getMonth() - months);
-  const startDateStr = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
-  
+  const cutoffDate = new Date();
+  cutoffDate.setMonth(cutoffDate.getMonth() - months);
+  const cutoffYYYYMM =
+    cutoffDate.getFullYear().toString() +
+    (cutoffDate.getMonth() + 1).toString().padStart(2, '0');
+
   const sql = `
     SELECT 
-      strftime(obligation_end_date, '%Y-%m') as month,
-      COALESCE(SUM(total_receipts), 0) as total_receipts,
-      COALESCE(SUM(liquor_receipts), 0) as liquor_receipts,
-      COALESCE(SUM(wine_receipts), 0) as wine_receipts,
-      COALESCE(SUM(beer_receipts), 0) as beer_receipts,
-      COALESCE(SUM(cover_charge_receipts), 0) as cover_charge_receipts
+      right(location_month_key, 6) as month_raw,
+      left(right(location_month_key, 6), 4) || '-' || right(location_month_key, 2) as month,
+      CAST(COALESCE(SUM(total_receipts), 0) AS DOUBLE) as total_receipts,
+      CAST(COALESCE(SUM(liquor_receipts), 0) AS DOUBLE) as liquor_receipts,
+      CAST(COALESCE(SUM(wine_receipts), 0) AS DOUBLE) as wine_receipts,
+      CAST(COALESCE(SUM(beer_receipts), 0) AS DOUBLE) as beer_receipts,
+      CAST(COALESCE(SUM(cover_charge_receipts), 0) AS DOUBLE) as cover_charge_receipts
     FROM mixed_beverage_receipts
     WHERE tabc_permit_number = ?
-      AND obligation_end_date >= ?
-    GROUP BY month
-    ORDER BY month ASC
+      AND right(location_month_key, 6) >= ?
+    GROUP BY right(location_month_key, 6), left(right(location_month_key, 6), 4) || '-' || right(location_month_key, 2)
+    ORDER BY right(location_month_key, 6) ASC
   `;
-  
-  console.log('[getCustomerMonthlyRevenue] Query for permit:', permitNumber);
-  console.log('[getCustomerMonthlyRevenue] Start date:', startDateStr);
+
+  console.log('[getCustomerMonthlyRevenue] Permit:', permitNumber);
+  console.log('[getCustomerMonthlyRevenue] Cutoff YYYYMM:', cutoffYYYYMM);
+
   try {
-    const results = await query<MonthlyRevenue>(sql, [permitNumber, startDateStr]);
-    console.log('[getCustomerMonthlyRevenue] Returned', results.length, 'months');
-    return results;
+    const results = await query<MonthlyRevenue & { month_raw?: string }>(sql, [permitNumber, cutoffYYYYMM]);
+    console.log('[getCustomerMonthlyRevenue] Results:', results.length, 'months');
+    if (results.length > 0) {
+      console.log('[getCustomerMonthlyRevenue] First result:', results[0]);
+    }
+    return results as MonthlyRevenue[];
   } catch (error: any) {
     console.error('[getCustomerMonthlyRevenue] Error:', error);
     throw error;
