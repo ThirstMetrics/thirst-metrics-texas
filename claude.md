@@ -620,6 +620,49 @@ POST /api/geocode            - Geocode a location (lazy)
 
 ---
 
+## Lessons Learned (Do Not Repeat)
+
+### Deployment & Ingestion Issues (Feb 2026)
+
+**1. NEVER run large ingestions without batch commits**
+- Problem: 850k record ingestion ran as single in-memory operation, risking total data loss on failure
+- Solution: Always use batched inserts with commits every 1,000-5,000 records
+- See: `docs/specs/SPEC-006-ingestion-best-practices.md`
+
+**2. Environment-specific batch sizes are mandatory**
+- Cloudways (shared hosting): 1,000 records max per batch
+- Azure/AWS (dedicated): 10,000 records per batch
+- Local dev: 5,000 records per batch
+- Add `DEPLOYMENT_ENV` to all `.env` files
+
+**3. Checkpoint/resume capability for any ingestion over 10k records**
+- Save progress to `data/.ingestion-checkpoint-{script}.json`
+- On restart, resume from last checkpoint, don't start over
+- Delete checkpoint file only on successful completion
+
+**4. Screen sessions for long-running server tasks**
+- Always use `screen -S <name>` before running ingestion on remote servers
+- Detach with `Ctrl+A` then `D`
+- Reattach with `screen -r <name>`
+- Verify screen is active with `screen -ls`
+
+**5. Verify file paths and case sensitivity**
+- Windows: case-insensitive (`Data/` == `data/`)
+- Linux (Cloudways/Azure): case-sensitive (`Data/` != `data/`)
+- Always verify paths match exactly on Linux deployments
+
+**6. DuckDB package naming**
+- Old package: `duckdb` (used by ingestion scripts)
+- New package: `@duckdb/node-api` (used by Next.js app)
+- Both may need to be installed depending on scripts
+
+**7. npm install on constrained servers can take hours**
+- Compiling native modules (like DuckDB) on low-memory servers is slow
+- Run in screen session, expect 1-2+ hours
+- Don't assume it failed just because it's slow
+
+---
+
 ## Review Schedule
 - Review this file: Weekly during active development
 - Last updated: January 25, 2026

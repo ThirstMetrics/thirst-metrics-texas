@@ -61,7 +61,7 @@ export default async function CustomersPage({
 const styles: Record<string, React.CSSProperties> = {
   wrapper: {
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'column' as const,
     height: '100vh',
     overflow: 'hidden',
   },
