@@ -3,7 +3,7 @@
  * Displays customers with sorting and filtering
  */
 
-import { Suspense } from 'react';
+import React, { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createServerClient } from '@/lib/supabase/server';
 import CustomerListClient from '@/components/customer-list-client';
@@ -58,7 +58,7 @@ export default async function CustomersPage({
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   wrapper: {
     display: 'flex',
     flexDirection: 'column',
