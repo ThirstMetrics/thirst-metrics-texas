@@ -128,7 +128,7 @@ export async function query<T = any>(sql: string, params: any[] = []): Promise<T
         } else if (typeof val === 'boolean') {
           prepared.bindBoolean(pos, val);
         } else if (val instanceof Date) {
-          prepared.bindTimestamp(pos, val.getTime() / 1000); // DuckDB timestamp is seconds since epoch
+          prepared.bindVarchar(pos, val.toISOString()); // Use ISO string for cross-platform compatibility
         } else {
           // Fallback to string conversion
           prepared.bindVarchar(pos, String(val));
