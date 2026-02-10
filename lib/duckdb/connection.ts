@@ -3,7 +3,7 @@
  * Uses InstanceCache to manage database instances efficiently
  */
 
-import { DuckDBInstance, DuckDBInstanceCache, DuckDBConnection, DuckDBPreparedStatement, DuckDBQueryResult } from '@duckdb/node-api';
+import { DuckDBInstance, DuckDBInstanceCache, DuckDBConnection, DuckDBPreparedStatement, DuckDBResult } from '@duckdb/node-api';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -105,7 +105,7 @@ export async function query<T = any>(sql: string, params: any[] = []): Promise<T
 
     if (params.length === 0) {
       // Simple non-param query
-      const result: DuckDBQueryResult = await connection.runAndReadAll(sql);
+      const result: DuckDBResult = await connection.runAndReadAll(sql);
       rows = await result.getRowObjects() as T[];
       console.log(`[DuckDB Neo] Success – ${rows.length} rows (no params)`);
     } else {
@@ -135,7 +135,7 @@ export async function query<T = any>(sql: string, params: any[] = []): Promise<T
         }
       });
 
-      const result: DuckDBQueryResult = await prepared.run();
+      const result: DuckDBResult = await prepared.run();
       rows = await result.getRowObjects() as T[];
       console.log(`[DuckDB Neo] Success – ${rows.length} rows (with params)`);
     }
