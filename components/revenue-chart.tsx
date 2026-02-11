@@ -32,11 +32,20 @@ interface RevenueChartProps {
   onSeriesToggle?: (series: keyof VisibleSeries) => void;
 }
 
+// Brand colors from thirstmetrics.com
+const brandColors = {
+  primary: '#0d7377',      // brand-500 (teal)
+  primaryDark: '#042829',  // brand-900
+  primaryLight: '#e6f5f5', // brand-50
+  accent: '#22d3e6',       // accent-400 (cyan)
+  hover: '#0a5f63',        // brand-600
+};
+
 const seriesColors = {
-  total: '#667eea',
-  liquor: '#f093fb',
-  wine: '#4facfe',
-  beer: '#43e97b',
+  total: brandColors.primary,  // teal (brand primary)
+  liquor: '#f093fb',           // pink
+  wine: '#4facfe',             // blue
+  beer: '#43e97b',             // green
 };
 
 const seriesLabels = {

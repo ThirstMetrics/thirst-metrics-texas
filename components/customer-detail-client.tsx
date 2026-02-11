@@ -43,6 +43,15 @@ const timePeriodMonths: Record<TimePeriod, number> = {
   '1yr': 12,
 };
 
+// Brand colors from thirstmetrics.com
+const brandColors = {
+  primary: '#0d7377',      // brand-500 (teal)
+  primaryDark: '#042829',  // brand-900
+  primaryLight: '#e6f5f5', // brand-50
+  accent: '#22d3e6',       // accent-400 (cyan)
+  hover: '#0a5f63',        // brand-600
+};
+
 export default function CustomerDetailClient(props: CustomerDetailClientProps) {
   const { customer, monthlyRevenue, activities, userId } = props;
   const [showActivityForm, setShowActivityForm] = useState(false);
@@ -246,7 +255,7 @@ const styles: Record<string, React.CSSProperties> = {
   backLink: {
     display: 'inline-block',
     marginBottom: '16px',
-    color: '#667eea',
+    color: brandColors.primary,
     textDecoration: 'none',
     fontSize: '14px',
   },
@@ -257,7 +266,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   logActivityButton: {
     padding: '12px 24px',
-    background: '#667eea',
+    background: brandColors.primary,
     color: 'white',
     border: 'none',
     borderRadius: '6px',
@@ -316,8 +325,8 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'all 0.2s',
   },
   periodButtonActive: {
-    borderColor: '#667eea',
-    backgroundColor: '#667eea',
+    borderColor: brandColors.primary,
+    backgroundColor: brandColors.primary,
     color: 'white',
   },
   loadingChart: {

@@ -19,9 +19,11 @@ export async function GET(request: Request) {
     const sortOrder = (searchParams.get('sortOrder') as 'asc' | 'desc') || 'desc';
     const minRevenue = searchParams.get('minRevenue') ? parseFloat(searchParams.get('minRevenue')!) : undefined;
     const monthsBack = searchParams.get('monthsBack') ? parseInt(searchParams.get('monthsBack')!) : 12;
-    
-    const limit = 50;
-    const offset = (page - 1) * limit;
+    const sortByRevenue = (searchParams.get('sortByRevenue') as 'total' | 'wine' | 'beer' | 'liquor' | 'cover_charge') || 'total';
+    const topN = searchParams.get('topN') ? parseInt(searchParams.get('topN')!) : undefined;
+
+    const limit = topN || 50;
+    const offset = topN ? 0 : (page - 1) * 50;
     
     console.log('[API] Fetching customers with filters:', {
       search,
@@ -31,6 +33,8 @@ export async function GET(request: Request) {
       monthsBack,
       sortBy,
       sortOrder,
+      sortByRevenue,
+      topN,
       page,
       limit,
       offset,
@@ -46,6 +50,8 @@ export async function GET(request: Request) {
         monthsBack,
         sortBy,
         sortOrder,
+        sortByRevenue,
+        topN,
         limit,
         offset,
       }),

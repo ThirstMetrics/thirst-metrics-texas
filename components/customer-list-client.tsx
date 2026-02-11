@@ -34,6 +34,15 @@ const TIME_PERIODS = [
   { label: '1 Mo', value: 1 },
 ];
 
+// Sort by revenue type options
+const SORT_OPTIONS = [
+  { label: 'Total Revenue', value: 'total' },
+  { label: 'Wine', value: 'wine' },
+  { label: 'Beer', value: 'beer' },
+  { label: 'Spirits', value: 'liquor' },
+  { label: 'Cover Charges', value: 'cover_charge' },
+];
+
 export default function CustomerListClient(props: CustomerListClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -61,6 +70,8 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   });
   const [headerVisible, setHeaderVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const [sortByRevenue, setSortByRevenue] = useState<string>('total');
+  const [topN, setTopN] = useState<number | undefined>(undefined);
   const [counties, setCounties] = useState<{ county_code: string; county_name: string }[]>([]);
   const [metroplexes, setMetroplexes] = useState<{ metroplex: string }[]>([]);
   
@@ -77,20 +88,22 @@ export default function CustomerListClient(props: CustomerListClientProps) {
       params.set('sortOrder', sortOrder);
       if (minRevenue) params.set('minRevenue', minRevenue.toString());
       params.set('monthsBack', monthsBack.toString());
-      
+      if (sortByRevenue) params.set('sortByRevenue', sortByRevenue);
+      if (topN) params.set('topN', topN.toString());
+
       // Update URL without triggering navigation during render
       if (typeof window !== 'undefined') {
         const url = `/customers?${params.toString()}`;
         window.history.replaceState({}, '', url);
       }
-      
+
       const response = await fetch(`/api/customers?${params.toString()}`);
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       setCustomers(data.customers || []);
       setTotalCount(data.totalCount || 0);
     } catch (error) {
@@ -100,7 +113,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
     } finally {
       setLoading(false);
     }
-  }, [page, search, county, city, metroplex, sortBy, sortOrder, minRevenue, monthsBack]);
+  }, [page, search, county, city, metroplex, sortBy, sortOrder, minRevenue, monthsBack, sortByRevenue, topN]);
   
   useEffect(() => {
     loadCustomers();
@@ -279,7 +292,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
         Showing {customers.length} of {totalCount} customers
       </div>
 
-      {/* Time Period Selector */}
+      {/* Time Period Selector + Sort + Top N */}
       <div style={styles.timePeriodRow}>
         <span style={styles.timePeriodLabel}>Time Period:</span>
         <div style={styles.timePeriodButtons}>
@@ -299,22 +312,42 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             </button>
           ))}
         </div>
+
+        <div style={styles.sortSection}>
+          <span style={styles.timePeriodLabel}>Sort:</span>
+          <select
+            value={sortByRevenue}
+            onChange={(e) => {
+              setSortByRevenue(e.target.value);
+              setPage(1);
+            }}
+            style={styles.sortDropdown}
+          >
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={styles.topNSection}>
+          <span style={styles.timePeriodLabel}>Top N:</span>
+          <input
+            type="number"
+            placeholder="All"
+            value={topN || ''}
+            onChange={(e) => {
+              setTopN(e.target.value ? parseInt(e.target.value) : undefined);
+              setPage(1);
+            }}
+            style={styles.topNInput}
+            min={1}
+          />
+        </div>
       </div>
 
       {/* Column toggles + top pagination (same row, pagination right-justified) */}
       <div style={styles.toolbarRow}>
         <div style={styles.columnToggles}>
-          <button
-            onClick={() => setVisibleColumns(v => ({ ...v, address: !v.address }))}
-            style={{
-              ...styles.toggleButton,
-              background: visibleColumns.address ? brandColors.primary : 'white',
-              borderColor: visibleColumns.address ? brandColors.primary : '#e2e8f0',
-              color: visibleColumns.address ? 'white' : '#475569',
-            }}
-          >
-            Address
-          </button>
           <button
             onClick={() => setVisibleColumns(v => ({ ...v, wine: !v.wine }))}
             style={{
@@ -381,6 +414,17 @@ export default function CustomerListClient(props: CustomerListClientProps) {
           >
             Industry
           </button>
+          <button
+            onClick={() => setVisibleColumns(v => ({ ...v, address: !v.address }))}
+            style={{
+              ...styles.toggleButton,
+              background: visibleColumns.address ? brandColors.primary : 'white',
+              borderColor: visibleColumns.address ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.address ? 'white' : '#475569',
+            }}
+          >
+            Address
+          </button>
         </div>
         {totalPages > 1 && !loading && customers.length > 0 && (
           <div style={styles.paginationInline}>
@@ -415,6 +459,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
           <table style={styles.table}>
             <thead>
               <tr>
+                {topN && (
+                  <th style={{ ...styles.th, ...styles.thRank }}>Rank</th>
+                )}
                 <th style={{ ...styles.th, ...styles.thName }}>
                   <button
                     onClick={() => handleSort('name')}
@@ -465,8 +512,13 @@ export default function CustomerListClient(props: CustomerListClientProps) {
               </tr>
             </thead>
             <tbody>
-              {customers.map((customer) => (
+              {customers.map((customer, index) => (
                 <tr key={customer.tabc_permit_number} style={styles.tr}>
+                  {topN && (
+                    <td style={{ ...styles.td, ...styles.tdRank }}>
+                      {index + 1 + ((page - 1) * props.limit)}
+                    </td>
+                  )}
                   <td style={{ ...styles.td, ...styles.tdName }}>
                     <div style={styles.nameCell}>
                       <strong style={styles.nameText} title={customer.location_name || undefined}>
@@ -688,6 +740,44 @@ const styles = {
     borderColor: brandColors.primary,
     color: 'white',
   },
+  sortSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginLeft: '16px',
+    paddingLeft: '16px',
+    borderLeft: '1px solid #e2e8f0',
+  },
+  sortDropdown: {
+    padding: '8px 12px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    backgroundColor: 'white',
+    color: '#475569',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    minWidth: '130px',
+  },
+  topNSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginLeft: '16px',
+    paddingLeft: '16px',
+    borderLeft: '1px solid #e2e8f0',
+  },
+  topNInput: {
+    padding: '8px 12px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    backgroundColor: 'white',
+    color: '#475569',
+    fontSize: '13px',
+    fontWeight: '500',
+    width: '80px',
+    textAlign: 'center' as const,
+  },
   resultsInfo: {
     marginBottom: '16px',
     color: '#666',
@@ -842,4 +932,11 @@ const styles = {
   tdLocation: {},
   tdLastReceipt: {},
   tdActions: { textAlign: 'center' as const },
+  thRank: { width: 60, textAlign: 'center' as const },
+  tdRank: {
+    width: 60,
+    textAlign: 'center' as const,
+    fontWeight: '600',
+    color: brandColors.primary,
+  },
 };

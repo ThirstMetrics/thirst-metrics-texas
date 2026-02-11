@@ -49,6 +49,8 @@ export async function getCustomers(filters?: {
   offset?: number;
   sortBy?: 'revenue' | 'name' | 'last_receipt';
   sortOrder?: 'asc' | 'desc';
+  sortByRevenue?: 'total' | 'wine' | 'beer' | 'liquor' | 'cover_charge';
+  topN?: number;
 }): Promise<CustomerRevenue[]> {
   console.log('[getCustomers] Called with filters:', filters);
   
@@ -132,9 +134,19 @@ export async function getCustomers(filters?: {
   // Sorting
   const sortBy = filters?.sortBy || 'revenue';
   const sortOrder = filters?.sortOrder || 'desc';
-  
+  const sortByRevenue = filters?.sortByRevenue || 'total';
+
   if (sortBy === 'revenue') {
-    sql += ` ORDER BY total_revenue ${sortOrder.toUpperCase()} NULLS LAST`;
+    // Use sortByRevenue to determine which column to sort by
+    const revenueColumnMap: Record<string, string> = {
+      'total': 'total_revenue',
+      'wine': 'wine_revenue',
+      'beer': 'beer_revenue',
+      'liquor': 'liquor_revenue',
+      'cover_charge': 'cover_charge_revenue',
+    };
+    const revenueColumn = revenueColumnMap[sortByRevenue] || 'total_revenue';
+    sql += ` ORDER BY ${revenueColumn} ${sortOrder.toUpperCase()} NULLS LAST`;
   } else if (sortBy === 'name') {
     sql += ` ORDER BY location_name ${sortOrder.toUpperCase()} NULLS LAST`;
   } else if (sortBy === 'last_receipt') {
