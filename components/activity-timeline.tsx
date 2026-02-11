@@ -1,6 +1,7 @@
 /**
  * Activity Timeline Component
  * Displays activities (with photos, summary, next action, product interest) and activity form
+ * Includes GPS display and photo viewer integration
  */
 
 'use client';
@@ -9,6 +10,15 @@ import { useState } from 'react';
 import { format, isValid, parseISO } from 'date-fns';
 import { SalesActivity } from '@/lib/data/activities';
 import ActivityForm from './activity-form';
+import PhotoViewer, { Photo } from './photo-viewer';
+
+// Brand colors
+const brandColors = {
+  primary: '#0d7377',
+  primaryDark: '#042829',
+  primaryLight: '#e6f5f5',
+  accent: '#22d3e6',
+};
 
 function formatActivityDate(dateStr: string): string {
   try {
@@ -36,7 +46,35 @@ interface ActivityTimelineProps {
 
 export default function ActivityTimeline(props: ActivityTimelineProps) {
   const { activities, permitNumber, userId, onActivityCreated, showForm, onCloseForm, onOpenForm } = props;
-  
+
+  // Photo viewer state
+  const [viewerPhotos, setViewerPhotos] = useState<Photo[]>([]);
+  const [viewerInitialIndex, setViewerInitialIndex] = useState(0);
+  const [showViewer, setShowViewer] = useState(false);
+
+  const openPhotoViewer = (photos: Photo[], index: number) => {
+    setViewerPhotos(photos);
+    setViewerInitialIndex(index);
+    setShowViewer(true);
+  };
+
+  const closePhotoViewer = () => {
+    setShowViewer(false);
+    setViewerPhotos([]);
+  };
+
+  const formatGPS = (lat?: number | null, lng?: number | null, accuracy?: number | null) => {
+    if (!lat || !lng) return null;
+    const latDir = lat >= 0 ? 'N' : 'S';
+    const lngDir = lng >= 0 ? 'E' : 'W';
+    const accuracyStr = accuracy ? ` (±${Math.round(accuracy)}m)` : '';
+    return `${Math.abs(lat).toFixed(5)}° ${latDir}, ${Math.abs(lng).toFixed(5)}° ${lngDir}${accuracyStr}`;
+  };
+
+  const getGoogleMapsUrl = (lat: number, lng: number) => {
+    return `https://www.google.com/maps?q=${lat},${lng}`;
+  };
+
   const getActivityTypeIcon = (type: string) => {
     switch (type) {
       case 'visit': return '📍';
@@ -144,22 +182,43 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
                   <strong>Next follow-up:</strong> {formatActivityDate(activity.next_followup_date)}
                 </div>
               )}
+              {/* GPS Display */}
+              {activity.gps_latitude && activity.gps_longitude && (
+                <div style={styles.gpsDisplay}>
+                  <a
+                    href={getGoogleMapsUrl(activity.gps_latitude, activity.gps_longitude)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={styles.gpsLink}
+                    title="Open in Google Maps"
+                  >
+                    📍 {formatGPS(activity.gps_latitude, activity.gps_longitude, activity.gps_accuracy_meters)}
+                  </a>
+                </div>
+              )}
+              {/* Photo thumbnails - clickable to open viewer */}
               {photos.length > 0 && (
                 <div style={styles.photos}>
-                  {photos.slice(0, 5).map((p) => (
-                    <a
+                  {photos.slice(0, 5).map((p, idx) => (
+                    <button
                       key={p.id}
-                      href={p.photo_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      onClick={() => openPhotoViewer(photos as Photo[], idx)}
                       style={styles.photoThumb}
-                      title={p.photo_type || 'Photo'}
+                      title={`${p.photo_type || 'Photo'}${p.ocr_text ? ' (OCR available)' : ''}`}
+                      type="button"
                     >
                       <img src={p.photo_url} alt="" style={styles.photoImg} />
-                    </a>
+                      {p.ocr_text && <span style={styles.ocrBadge}>📝</span>}
+                    </button>
                   ))}
                   {photos.length > 5 && (
-                    <span style={styles.photoMore}>+{photos.length - 5}</span>
+                    <button
+                      onClick={() => openPhotoViewer(photos as Photo[], 5)}
+                      style={styles.photoMoreBtn}
+                      type="button"
+                    >
+                      +{photos.length - 5} more
+                    </button>
                   )}
                 </div>
               )}
@@ -167,11 +226,20 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
           );
         })}
       </div>
+
+      {/* Photo Viewer Modal */}
+      {showViewer && viewerPhotos.length > 0 && (
+        <PhotoViewer
+          photos={viewerPhotos}
+          initialIndex={viewerInitialIndex}
+          onClose={closePhotoViewer}
+        />
+      )}
     </div>
   );
 }
 
-const styles = {
+const styles: { [key: string]: React.CSSProperties } = {
   empty: {
     padding: '40px',
     textAlign: 'center' as const,
@@ -180,7 +248,7 @@ const styles = {
   addButton: {
     marginTop: '16px',
     padding: '10px 20px',
-    background: '#667eea',
+    background: brandColors.primary,
     color: 'white',
     border: 'none',
     borderRadius: '6px',
@@ -195,7 +263,7 @@ const styles = {
     padding: '16px',
     background: '#f9f9f9',
     borderRadius: '8px',
-    borderLeft: '4px solid #667eea',
+    borderLeft: `4px solid ${brandColors.primary}`,
   },
   activityHeader: {
     display: 'flex',
@@ -241,7 +309,22 @@ const styles = {
   followup: {
     marginTop: '8px',
     fontSize: '14px',
-    color: '#667eea',
+    color: brandColors.primary,
+  },
+  gpsDisplay: {
+    marginTop: '10px',
+    fontSize: '12px',
+  },
+  gpsLink: {
+    color: '#666',
+    textDecoration: 'none',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '4px 8px',
+    backgroundColor: '#f0f0f0',
+    borderRadius: '4px',
+    transition: 'background-color 0.2s',
   },
   intel: {
     marginTop: '8px',
@@ -263,6 +346,7 @@ const styles = {
     alignItems: 'center',
   },
   photoThumb: {
+    position: 'relative' as const,
     display: 'block',
     width: '48px',
     height: '48px',
@@ -270,14 +354,37 @@ const styles = {
     overflow: 'hidden',
     border: '1px solid #ddd',
     flexShrink: 0,
+    cursor: 'pointer',
+    padding: 0,
+    background: 'none',
+    transition: 'transform 0.2s, box-shadow 0.2s',
   },
   photoImg: {
     width: '100%',
     height: '100%',
     objectFit: 'cover' as const,
   },
+  ocrBadge: {
+    position: 'absolute' as const,
+    bottom: '2px',
+    right: '2px',
+    fontSize: '10px',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: '3px',
+    padding: '1px 3px',
+  },
   photoMore: {
     fontSize: '13px',
     color: '#666',
+  },
+  photoMoreBtn: {
+    fontSize: '12px',
+    color: brandColors.primary,
+    background: brandColors.primaryLight,
+    border: 'none',
+    borderRadius: '4px',
+    padding: '4px 8px',
+    cursor: 'pointer',
+    fontWeight: '500',
   },
 };
