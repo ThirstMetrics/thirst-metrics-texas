@@ -389,7 +389,7 @@ const beverageTerms: Record<string, string> = {
   // Italian wine terms
   'r0sso': 'rosso',
   'ross0': 'rosso',
-  'b1anco': 'bianco',
+  'bianc0': 'bianco',
   'riserva': 'riserva',
   'r1serva': 'riserva',
   'superiore': 'superiore',
