@@ -51,6 +51,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   const [minRevenue, setMinRevenue] = useState(props.initialMinRevenue);
   const [monthsBack, setMonthsBack] = useState(props.initialMonthsBack || 12);
   const [visibleColumns, setVisibleColumns] = useState({
+    address: false,
     wine: false,
     beer: false,
     liquor: false,
@@ -58,6 +59,8 @@ export default function CustomerListClient(props: CustomerListClientProps) {
     ownershipGroup: false,
     industrySegment: false,
   });
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
   const [counties, setCounties] = useState<{ county_code: string; county_name: string }[]>([]);
   const [metroplexes, setMetroplexes] = useState<{ metroplex: string }[]>([]);
   
@@ -102,6 +105,22 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
+
+  // Scroll detection for hiding page header
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY > lastScrollY && currentScrollY > 100) {
+        setHeaderVisible(false); // scrolling down
+      } else {
+        setHeaderVisible(true);  // scrolling up
+      }
+      setLastScrollY(currentScrollY);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [lastScrollY]);
 
   // Fetch counties and metroplexes on mount
   useEffect(() => {
@@ -177,6 +196,16 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   
   return (
     <div>
+      {/* Page Header - hides on scroll */}
+      <div style={{
+        ...styles.pageHeader,
+        transform: headerVisible ? 'translateY(0)' : 'translateY(-100%)',
+        transition: 'transform 0.3s ease-in-out',
+      }}>
+        <h1 style={styles.pageTitle}>Customers</h1>
+        <p style={styles.pageSubtitle}>Browse and analyze beverage establishments across Texas</p>
+      </div>
+
       {/* Filters */}
       <form onSubmit={handleSearch} style={styles.filters}>
         <input
@@ -275,6 +304,17 @@ export default function CustomerListClient(props: CustomerListClientProps) {
       {/* Column toggles + top pagination (same row, pagination right-justified) */}
       <div style={styles.toolbarRow}>
         <div style={styles.columnToggles}>
+          <button
+            onClick={() => setVisibleColumns(v => ({ ...v, address: !v.address }))}
+            style={{
+              ...styles.toggleButton,
+              background: visibleColumns.address ? brandColors.primary : 'white',
+              borderColor: visibleColumns.address ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.address ? 'white' : '#475569',
+            }}
+          >
+            Address
+          </button>
           <button
             onClick={() => setVisibleColumns(v => ({ ...v, wine: !v.wine }))}
             style={{
@@ -409,6 +449,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
                 {visibleColumns.industrySegment && (
                   <th style={{ ...styles.th, ...styles.thEnrichment }}>Industry</th>
                 )}
+                {visibleColumns.address && (
+                  <th style={{ ...styles.th, ...styles.thAddress }}>Address</th>
+                )}
                 <th style={{ ...styles.th, ...styles.thLocation }}>Location</th>
                 <th style={{ ...styles.th, ...styles.thLastReceipt }}>
                   <button
@@ -468,6 +511,11 @@ export default function CustomerListClient(props: CustomerListClientProps) {
                   {visibleColumns.industrySegment && (
                     <td style={{ ...styles.td, ...styles.tdEnrichment }}>
                       {customer.industry_segment ?? '—'}
+                    </td>
+                  )}
+                  {visibleColumns.address && (
+                    <td style={{ ...styles.td, ...styles.tdAddress }}>
+                      {customer.location_address || '—'}
                     </td>
                   )}
                   <td style={{ ...styles.td, ...styles.tdLocation }}>
@@ -535,6 +583,24 @@ const brandColors = {
 };
 
 const styles = {
+  pageHeader: {
+    background: 'linear-gradient(135deg, #0d7377 0%, #0a5f63 100%)',
+    padding: '12px 0',
+    marginBottom: '16px',
+    borderRadius: '8px',
+  },
+  pageTitle: {
+    fontSize: '22px',
+    fontWeight: '700',
+    color: 'white',
+    margin: 0,
+  },
+  pageSubtitle: {
+    fontSize: '13px',
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: '2px',
+    marginBottom: 0,
+  },
   filters: {
     position: 'sticky' as const,
     top: 0,
@@ -765,12 +831,14 @@ const styles = {
   thName: { minWidth: 200 },
   thRevenue: { minWidth: 120, textAlign: 'right' as const },
   thOptional: { minWidth: 100, textAlign: 'right' as const },
+  thAddress: { minWidth: 200 },
   thLocation: { minWidth: 150 },
   thLastReceipt: { minWidth: 110 },
   thActions: { minWidth: 80, textAlign: 'center' as const },
   tdName: { minWidth: 200 },
   tdRevenue: { textAlign: 'right' as const },
   tdOptional: { textAlign: 'right' as const },
+  tdAddress: { fontSize: '13px' },
   tdLocation: {},
   tdLastReceipt: {},
   tdActions: { textAlign: 'center' as const },

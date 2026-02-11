@@ -1,6 +1,6 @@
 /**
  * Revenue Chart Component
- * Displays monthly revenue using Recharts
+ * Displays monthly revenue using Recharts with toggle controls
  */
 
 'use client';
@@ -19,14 +19,36 @@ import {
 } from 'recharts';
 import { MonthlyRevenue } from '@/lib/data/beverage-receipts';
 
-interface RevenueChartProps {
-  data: MonthlyRevenue[];
+interface VisibleSeries {
+  total: boolean;
+  liquor: boolean;
+  wine: boolean;
+  beer: boolean;
 }
 
-export default function RevenueChart({ data }: RevenueChartProps) {
-  if (typeof window !== 'undefined') {
-    console.log('Chart received data:', data);
-  }
+interface RevenueChartProps {
+  data: MonthlyRevenue[];
+  visibleSeries?: VisibleSeries;
+  onSeriesToggle?: (series: keyof VisibleSeries) => void;
+}
+
+const seriesColors = {
+  total: '#667eea',
+  liquor: '#f093fb',
+  wine: '#4facfe',
+  beer: '#43e97b',
+};
+
+const seriesLabels = {
+  total: 'Total Revenue',
+  liquor: 'Liquor',
+  wine: 'Wine',
+  beer: 'Beer',
+};
+
+export default function RevenueChart({ data, visibleSeries, onSeriesToggle }: RevenueChartProps) {
+  // Default all series to visible if not provided
+  const series = visibleSeries ?? { total: true, liquor: true, wine: true, beer: true };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -52,13 +74,34 @@ export default function RevenueChart({ data }: RevenueChartProps) {
     beer: safe(item.beer_receipts),
     cover: safe(item.cover_charge_receipts),
   }));
-  
+
   if (chartData.length === 0) {
     return <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>No revenue data available</div>;
   }
-  
+
   return (
     <div>
+      {/* Series Toggle Buttons */}
+      {onSeriesToggle && (
+        <div style={styles.seriesToggleRow}>
+          <span style={styles.seriesLabel}>Show:</span>
+          {(Object.keys(seriesColors) as (keyof VisibleSeries)[]).map((key) => (
+            <button
+              key={key}
+              onClick={() => onSeriesToggle(key)}
+              style={{
+                ...styles.seriesToggle,
+                backgroundColor: series[key] ? seriesColors[key] : '#e5e7eb',
+                color: series[key] ? 'white' : '#6b7280',
+                borderColor: series[key] ? seriesColors[key] : '#d1d5db',
+              }}
+            >
+              {seriesLabels[key]}
+            </button>
+          ))}
+        </div>
+      )}
+
       <ResponsiveContainer width="100%" height={400}>
         <BarChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" />
@@ -75,13 +118,13 @@ export default function RevenueChart({ data }: RevenueChartProps) {
             labelStyle={{ color: '#333' }}
           />
           <Legend />
-          <Bar dataKey="total" fill="#667eea" name="Total Revenue" />
-          <Bar dataKey="liquor" fill="#f093fb" name="Liquor" />
-          <Bar dataKey="wine" fill="#4facfe" name="Wine" />
-          <Bar dataKey="beer" fill="#43e97b" name="Beer" />
+          {series.total && <Bar dataKey="total" fill={seriesColors.total} name="Total Revenue" />}
+          {series.liquor && <Bar dataKey="liquor" fill={seriesColors.liquor} name="Liquor" />}
+          {series.wine && <Bar dataKey="wine" fill={seriesColors.wine} name="Wine" />}
+          {series.beer && <Bar dataKey="beer" fill={seriesColors.beer} name="Beer" />}
         </BarChart>
       </ResponsiveContainer>
-      
+
       {/* Line chart for trend */}
       <ResponsiveContainer width="100%" height={300} style={{ marginTop: '24px' }}>
         <LineChart data={chartData}>
@@ -99,15 +142,69 @@ export default function RevenueChart({ data }: RevenueChartProps) {
             labelStyle={{ color: '#333' }}
           />
           <Legend />
-          <Line
-            type="monotone"
-            dataKey="total"
-            stroke="#667eea"
-            strokeWidth={2}
-            name="Total Revenue"
-          />
+          {series.total && (
+            <Line
+              type="monotone"
+              dataKey="total"
+              stroke={seriesColors.total}
+              strokeWidth={2}
+              name="Total Revenue"
+            />
+          )}
+          {series.liquor && (
+            <Line
+              type="monotone"
+              dataKey="liquor"
+              stroke={seriesColors.liquor}
+              strokeWidth={2}
+              name="Liquor"
+            />
+          )}
+          {series.wine && (
+            <Line
+              type="monotone"
+              dataKey="wine"
+              stroke={seriesColors.wine}
+              strokeWidth={2}
+              name="Wine"
+            />
+          )}
+          {series.beer && (
+            <Line
+              type="monotone"
+              dataKey="beer"
+              stroke={seriesColors.beer}
+              strokeWidth={2}
+              name="Beer"
+            />
+          )}
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
 }
+
+const styles = {
+  seriesToggleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginBottom: '16px',
+    flexWrap: 'wrap' as const,
+  },
+  seriesLabel: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#374151',
+    marginRight: '4px',
+  },
+  seriesToggle: {
+    padding: '8px 14px',
+    border: '2px solid',
+    borderRadius: '20px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: '600',
+    transition: 'all 0.2s',
+  },
+};

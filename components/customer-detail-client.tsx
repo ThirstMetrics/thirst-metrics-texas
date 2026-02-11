@@ -13,6 +13,15 @@ import { SalesActivity } from '@/lib/data/activities';
 import RevenueChart from './revenue-chart';
 import ActivityTimeline from './activity-timeline';
 
+type TimePeriod = 'all' | '3yr' | '2yr' | '1yr';
+
+interface VisibleSeries {
+  total: boolean;
+  liquor: boolean;
+  wine: boolean;
+  beer: boolean;
+}
+
 interface CustomerDetailClientProps {
   customer: CustomerRevenue;
   monthlyRevenue: MonthlyRevenue[];
@@ -20,10 +29,35 @@ interface CustomerDetailClientProps {
   userId: string;
 }
 
+const TIME_PERIODS: { label: string; value: TimePeriod }[] = [
+  { label: 'All', value: 'all' },
+  { label: '3 yr', value: '3yr' },
+  { label: '2 yr', value: '2yr' },
+  { label: '1 yr', value: '1yr' },
+];
+
+const timePeriodMonths: Record<TimePeriod, number> = {
+  'all': 120,
+  '3yr': 36,
+  '2yr': 24,
+  '1yr': 12,
+};
+
 export default function CustomerDetailClient(props: CustomerDetailClientProps) {
   const { customer, monthlyRevenue, activities, userId } = props;
   const [showActivityForm, setShowActivityForm] = useState(false);
-  
+
+  // Chart controls state
+  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('1yr');
+  const [chartData, setChartData] = useState<MonthlyRevenue[]>(monthlyRevenue);
+  const [isLoadingChart, setIsLoadingChart] = useState(false);
+  const [visibleSeries, setVisibleSeries] = useState<VisibleSeries>({
+    total: true,
+    liquor: true,
+    wine: true,
+    beer: true,
+  });
+
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined || isNaN(value)) {
       return '$0';
@@ -35,7 +69,7 @@ export default function CustomerDetailClient(props: CustomerDetailClientProps) {
       maximumFractionDigits: 0,
     }).format(value);
   };
-  
+
   const formatDate = (dateStr: string | null | undefined): string => {
     if (!dateStr) return 'N/A';
     try {
@@ -52,7 +86,33 @@ export default function CustomerDetailClient(props: CustomerDetailClientProps) {
       return 'Invalid Date';
     }
   };
-  
+
+  const handlePeriodChange = async (period: TimePeriod) => {
+    setSelectedPeriod(period);
+    setIsLoadingChart(true);
+
+    const months = timePeriodMonths[period];
+
+    try {
+      const response = await fetch(`/api/customers/${customer.tabc_permit_number}/revenue?months=${months}`);
+      if (response.ok) {
+        const data = await response.json();
+        setChartData(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch revenue data:', error);
+    } finally {
+      setIsLoadingChart(false);
+    }
+  };
+
+  const handleSeriesToggle = (series: keyof VisibleSeries) => {
+    setVisibleSeries(prev => ({
+      ...prev,
+      [series]: !prev[series],
+    }));
+  };
+
   // County: always show name from Counties table; never show county code on screen
   const countyLabel = customer.location_county ?? null;
 
@@ -138,14 +198,42 @@ export default function CustomerDetailClient(props: CustomerDetailClientProps) {
 
       {/* Charts - full width below two-column section */}
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Revenue History (Last 12 Months)</h2>
-        <RevenueChart data={monthlyRevenue} />
+        <div style={styles.chartHeader}>
+          <h2 style={styles.sectionTitle}>Revenue History</h2>
+
+          {/* Time Period Selector */}
+          <div style={styles.timePeriodSelector}>
+            <span style={styles.periodLabel}>Period:</span>
+            {TIME_PERIODS.map((period) => (
+              <button
+                key={period.value}
+                onClick={() => handlePeriodChange(period.value)}
+                style={{
+                  ...styles.periodButton,
+                  ...(selectedPeriod === period.value ? styles.periodButtonActive : {}),
+                }}
+              >
+                {period.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isLoadingChart ? (
+          <div style={styles.loadingChart}>Loading chart data...</div>
+        ) : (
+          <RevenueChart
+            data={chartData}
+            visibleSeries={visibleSeries}
+            onSeriesToggle={handleSeriesToggle}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   container: {
     minHeight: '100vh',
     padding: '20px',
@@ -191,10 +279,51 @@ const styles = {
     marginBottom: '24px',
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
   },
+  chartHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+    flexWrap: 'wrap',
+    gap: '12px',
+  },
   sectionTitle: {
     fontSize: '20px',
     fontWeight: '600',
-    marginBottom: '16px',
+    margin: 0,
     color: '#333',
+  },
+  timePeriodSelector: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  periodLabel: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#374151',
+    marginRight: '4px',
+  },
+  periodButton: {
+    padding: '8px 14px',
+    border: '2px solid #e5e7eb',
+    borderRadius: '20px',
+    backgroundColor: 'white',
+    color: '#6b7280',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  periodButtonActive: {
+    borderColor: '#667eea',
+    backgroundColor: '#667eea',
+    color: 'white',
+  },
+  loadingChart: {
+    padding: '60px',
+    textAlign: 'center',
+    color: '#6b7280',
+    fontSize: '14px',
   },
 };

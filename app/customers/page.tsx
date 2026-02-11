@@ -96,14 +96,6 @@ export default async function CustomersPage({
         </div>
       </header>
 
-      {/* Page Header */}
-      <div style={styles.pageHeader}>
-        <div style={styles.pageHeaderContent}>
-          <h1 style={styles.title}>Customers</h1>
-          <p style={styles.subtitle}>Browse and analyze beverage establishments across Texas</p>
-        </div>
-      </div>
-
       {/* Content */}
       <div style={styles.scrollArea}>
         <div style={styles.container}>
@@ -141,8 +133,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   navContent: {
-    maxWidth: '1400px',
-    margin: '0 auto',
+    width: '100%',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -210,23 +201,22 @@ const styles: Record<string, React.CSSProperties> = {
   },
   pageHeader: {
     background: 'linear-gradient(135deg, #0d7377 0%, #0a5f63 100%)',
-    padding: '24px',
+    padding: '12px 24px',
     flexShrink: 0,
   },
   pageHeaderContent: {
-    maxWidth: '1400px',
-    margin: '0 auto',
+    width: '100%',
   },
   title: {
-    fontSize: '28px',
+    fontSize: '22px',
     fontWeight: '700',
     color: 'white',
     margin: 0,
   },
   subtitle: {
-    fontSize: '14px',
+    fontSize: '13px',
     color: 'rgba(255,255,255,0.8)',
-    marginTop: '4px',
+    marginTop: '2px',
   },
   scrollArea: {
     flex: 1,
@@ -235,8 +225,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   container: {
     padding: '24px',
-    maxWidth: '1400px',
-    margin: '0 auto',
+    width: '100%',
   },
   loading: {
     padding: '40px',
