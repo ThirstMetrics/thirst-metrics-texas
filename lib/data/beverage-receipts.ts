@@ -43,6 +43,7 @@ export async function getCustomers(filters?: {
   zip?: string;
   metroplex?: string;
   minRevenue?: number;
+  monthsBack?: number;
   search?: string;
   limit?: number;
   offset?: number;
@@ -75,11 +76,21 @@ export async function getCustomers(filters?: {
     LEFT JOIN counties c ON m.location_county_code = c.county_code
     WHERE 1=1
   `;
-  
+
   const params: any[] = [];
-  
+
   console.log('[getCustomers] Initial SQL:', sql);
-  
+
+  // Time period filter - calculate cutoff date
+  if (filters?.monthsBack) {
+    const cutoffDate = new Date();
+    cutoffDate.setMonth(cutoffDate.getMonth() - filters.monthsBack);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    sql += ` AND m.obligation_end_date >= ?`;
+    params.push(cutoffStr);
+    console.log('[getCustomers] Applying monthsBack filter:', filters.monthsBack, 'cutoff:', cutoffStr);
+  }
+
   if (filters?.county) {
     sql += ` AND m.location_county_code = ?`;
     params.push(filters.county);
@@ -251,6 +262,7 @@ export async function getCustomerCount(filters?: {
   zip?: string;
   metroplex?: string;
   minRevenue?: number;
+  monthsBack?: number;
   search?: string;
 }): Promise<number> {
   let sql = `
@@ -261,29 +273,38 @@ export async function getCustomerCount(filters?: {
       LEFT JOIN location_enrichments e ON m.tabc_permit_number = e.tabc_permit_number
       WHERE 1=1
   `;
-  
+
   const params: any[] = [];
-  
+
+  // Time period filter - calculate cutoff date
+  if (filters?.monthsBack) {
+    const cutoffDate = new Date();
+    cutoffDate.setMonth(cutoffDate.getMonth() - filters.monthsBack);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    sql += ` AND m.obligation_end_date >= ?`;
+    params.push(cutoffStr);
+  }
+
   if (filters?.county) {
     sql += ` AND m.location_county_code = ?`;
     params.push(filters.county);
   }
-  
+
   if (filters?.city) {
     sql += ` AND m.location_city IS NOT NULL AND LOWER(m.location_city) LIKE ?`;
     params.push(`%${filters.city.toLowerCase()}%`);
   }
-  
+
   if (filters?.zip) {
     sql += ` AND m.location_zip = ?`;
     params.push(filters.zip);
   }
-  
+
   if (filters?.metroplex) {
     sql += ` AND m.location_zip IS NOT NULL AND SUBSTR(m.location_zip, 1, 5) IN (SELECT zip FROM metroplexes WHERE metroplex = ?)`;
     params.push(filters.metroplex);
   }
-  
+
   if (filters?.search) {
     sql += ` AND (
       UPPER(m.tabc_permit_number) LIKE ? OR

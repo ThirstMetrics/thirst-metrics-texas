@@ -19,9 +19,20 @@ interface CustomerListClientProps {
   initialSortBy: string;
   initialSortOrder: 'asc' | 'desc';
   initialMinRevenue?: number;
+  initialMonthsBack?: number;
   limit: number;
   offset: number;
 }
+
+// Time period options for filtering
+const TIME_PERIODS = [
+  { label: '36 Mo', value: 36 },
+  { label: '24 Mo', value: 24 },
+  { label: '12 Mo', value: 12 },
+  { label: '6 Mo', value: 6 },
+  { label: '3 Mo', value: 3 },
+  { label: '1 Mo', value: 1 },
+];
 
 export default function CustomerListClient(props: CustomerListClientProps) {
   const router = useRouter();
@@ -38,6 +49,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   const [sortBy, setSortBy] = useState(props.initialSortBy);
   const [sortOrder, setSortOrder] = useState(props.initialSortOrder);
   const [minRevenue, setMinRevenue] = useState(props.initialMinRevenue);
+  const [monthsBack, setMonthsBack] = useState(props.initialMonthsBack || 12);
   const [visibleColumns, setVisibleColumns] = useState({
     wine: false,
     beer: false,
@@ -61,6 +73,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
       params.set('sortBy', sortBy);
       params.set('sortOrder', sortOrder);
       if (minRevenue) params.set('minRevenue', minRevenue.toString());
+      params.set('monthsBack', monthsBack.toString());
       
       // Update URL without triggering navigation during render
       if (typeof window !== 'undefined') {
@@ -84,7 +97,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
     } finally {
       setLoading(false);
     }
-  }, [page, search, county, city, metroplex, sortBy, sortOrder, minRevenue]);
+  }, [page, search, county, city, metroplex, sortBy, sortOrder, minRevenue, monthsBack]);
   
   useEffect(() => {
     loadCustomers();
@@ -237,6 +250,28 @@ export default function CustomerListClient(props: CustomerListClientProps) {
         Showing {customers.length} of {totalCount} customers
       </div>
 
+      {/* Time Period Selector */}
+      <div style={styles.timePeriodRow}>
+        <span style={styles.timePeriodLabel}>Time Period:</span>
+        <div style={styles.timePeriodButtons}>
+          {TIME_PERIODS.map((period) => (
+            <button
+              key={period.value}
+              onClick={() => {
+                setMonthsBack(period.value);
+                setPage(1);
+              }}
+              style={{
+                ...styles.timePeriodButton,
+                ...(monthsBack === period.value ? styles.timePeriodButtonActive : {}),
+              }}
+            >
+              {period.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Column toggles + top pagination (same row, pagination right-justified) */}
       <div style={styles.toolbarRow}>
         <div style={styles.columnToggles}>
@@ -244,8 +279,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             onClick={() => setVisibleColumns(v => ({ ...v, wine: !v.wine }))}
             style={{
               ...styles.toggleButton,
-              background: visibleColumns.wine ? '#3b82f6' : '#e5e7eb',
-              color: visibleColumns.wine ? 'white' : '#374151',
+              background: visibleColumns.wine ? brandColors.primary : 'white',
+              borderColor: visibleColumns.wine ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.wine ? 'white' : '#475569',
             }}
           >
             Wine
@@ -254,8 +290,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             onClick={() => setVisibleColumns(v => ({ ...v, beer: !v.beer }))}
             style={{
               ...styles.toggleButton,
-              background: visibleColumns.beer ? '#3b82f6' : '#e5e7eb',
-              color: visibleColumns.beer ? 'white' : '#374151',
+              background: visibleColumns.beer ? brandColors.primary : 'white',
+              borderColor: visibleColumns.beer ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.beer ? 'white' : '#475569',
             }}
           >
             Beer
@@ -264,8 +301,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             onClick={() => setVisibleColumns(v => ({ ...v, liquor: !v.liquor }))}
             style={{
               ...styles.toggleButton,
-              background: visibleColumns.liquor ? '#3b82f6' : '#e5e7eb',
-              color: visibleColumns.liquor ? 'white' : '#374151',
+              background: visibleColumns.liquor ? brandColors.primary : 'white',
+              borderColor: visibleColumns.liquor ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.liquor ? 'white' : '#475569',
             }}
           >
             Spirits
@@ -274,8 +312,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             onClick={() => setVisibleColumns(v => ({ ...v, coverCharge: !v.coverCharge }))}
             style={{
               ...styles.toggleButton,
-              background: visibleColumns.coverCharge ? '#3b82f6' : '#e5e7eb',
-              color: visibleColumns.coverCharge ? 'white' : '#374151',
+              background: visibleColumns.coverCharge ? brandColors.primary : 'white',
+              borderColor: visibleColumns.coverCharge ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.coverCharge ? 'white' : '#475569',
             }}
           >
             Cover Charge
@@ -284,8 +323,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             onClick={() => setVisibleColumns(v => ({ ...v, ownershipGroup: !v.ownershipGroup }))}
             style={{
               ...styles.toggleButton,
-              background: visibleColumns.ownershipGroup ? '#3b82f6' : '#e5e7eb',
-              color: visibleColumns.ownershipGroup ? 'white' : '#374151',
+              background: visibleColumns.ownershipGroup ? brandColors.primary : 'white',
+              borderColor: visibleColumns.ownershipGroup ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.ownershipGroup ? 'white' : '#475569',
             }}
           >
             Ownership
@@ -294,8 +334,9 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             onClick={() => setVisibleColumns(v => ({ ...v, industrySegment: !v.industrySegment }))}
             style={{
               ...styles.toggleButton,
-              background: visibleColumns.industrySegment ? '#3b82f6' : '#e5e7eb',
-              color: visibleColumns.industrySegment ? 'white' : '#374151',
+              background: visibleColumns.industrySegment ? brandColors.primary : 'white',
+              borderColor: visibleColumns.industrySegment ? brandColors.primary : '#e2e8f0',
+              color: visibleColumns.industrySegment ? 'white' : '#475569',
             }}
           >
             Industry
@@ -484,6 +525,15 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   );
 }
 
+// Brand colors from thirstmetrics.com
+const brandColors = {
+  primary: '#0d7377',      // brand-500 (teal)
+  primaryDark: '#042829',  // brand-900
+  primaryLight: '#e6f5f5', // brand-50
+  accent: '#22d3e6',       // accent-400 (cyan)
+  hover: '#0a5f63',        // brand-600
+};
+
 const styles = {
   filters: {
     position: 'sticky' as const,
@@ -492,8 +542,8 @@ const styles = {
     backgroundColor: '#ffffff',
     paddingTop: '16px',
     paddingBottom: '16px',
-    marginBottom: '24px',
-    borderBottom: '1px solid #e5e7eb',
+    marginBottom: '16px',
+    borderBottom: '1px solid #e2e8f0',
     display: 'flex',
     gap: '12px',
     flexWrap: 'wrap' as const,
@@ -501,36 +551,76 @@ const styles = {
   searchInput: {
     flex: '1',
     minWidth: '200px',
-    padding: '10px',
-    border: '1px solid #ddd',
-    borderRadius: '6px',
+    padding: '10px 14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
     fontSize: '14px',
+    outline: 'none',
+    transition: 'border-color 0.2s',
   },
   filterInput: {
-    width: '120px',
-    padding: '10px',
-    border: '1px solid #ddd',
-    borderRadius: '6px',
+    width: '140px',
+    padding: '10px 14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
     fontSize: '14px',
+    outline: 'none',
+    backgroundColor: 'white',
   },
   searchButton: {
     padding: '10px 20px',
-    background: '#667eea',
+    background: brandColors.primary,
     color: 'white',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '8px',
     cursor: 'pointer',
     fontSize: '14px',
     fontWeight: '500',
+    transition: 'background 0.2s',
   },
   clearButton: {
     padding: '10px 20px',
-    background: '#999',
+    background: '#64748b',
     color: 'white',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '8px',
     cursor: 'pointer',
     fontSize: '14px',
+  },
+  timePeriodRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '16px',
+    padding: '12px 16px',
+    backgroundColor: 'white',
+    borderRadius: '10px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+  },
+  timePeriodLabel: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#334155',
+  },
+  timePeriodButtons: {
+    display: 'flex',
+    gap: '6px',
+  },
+  timePeriodButton: {
+    padding: '8px 14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    backgroundColor: 'white',
+    color: '#475569',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  timePeriodButtonActive: {
+    backgroundColor: brandColors.primary,
+    borderColor: brandColors.primary,
+    color: 'white',
   },
   resultsInfo: {
     marginBottom: '16px',
@@ -551,17 +641,18 @@ const styles = {
     width: '100%',
     borderCollapse: 'collapse' as const,
     background: 'white',
-    borderRadius: '8px',
+    borderRadius: '10px',
     overflow: 'hidden',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
   },
   th: {
-    padding: '12px',
+    padding: '14px 12px',
     textAlign: 'left' as const,
-    background: '#f5f5f5',
+    background: brandColors.primaryLight,
     fontWeight: '600',
-    fontSize: '14px',
-    borderBottom: '2px solid #ddd',
+    fontSize: '13px',
+    borderBottom: `2px solid ${brandColors.primary}20`,
+    color: brandColors.primaryDark,
   },
   thEnrichment: { width: 160 },
   tdEnrichment: { width: 160, verticalAlign: 'top' as const },
@@ -612,10 +703,14 @@ const styles = {
     color: '#999',
   },
   viewButton: {
-    color: '#667eea',
+    color: brandColors.primary,
     textDecoration: 'none',
     fontWeight: '500',
     fontSize: '14px',
+    padding: '6px 12px',
+    borderRadius: '6px',
+    backgroundColor: brandColors.primaryLight,
+    transition: 'all 0.2s',
   },
   pagination: {
     display: 'flex',
@@ -626,12 +721,14 @@ const styles = {
   },
   pageButton: {
     padding: '8px 16px',
-    background: '#667eea',
+    background: brandColors.primary,
     color: 'white',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '8px',
     cursor: 'pointer',
     fontSize: '14px',
+    fontWeight: '500',
+    transition: 'background 0.2s',
   },
   pageInfo: {
     color: '#666',
@@ -658,11 +755,12 @@ const styles = {
   },
   toggleButton: {
     padding: '6px 12px',
-    border: 'none',
-    borderRadius: '4px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: '13px',
     fontWeight: '500',
+    transition: 'all 0.2s',
   },
   thName: { minWidth: 200 },
   thRevenue: { minWidth: 120, textAlign: 'right' as const },

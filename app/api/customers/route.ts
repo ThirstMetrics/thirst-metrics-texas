@@ -18,6 +18,7 @@ export async function GET(request: Request) {
     const sortBy = (searchParams.get('sortBy') as 'revenue' | 'name' | 'last_receipt') || 'revenue';
     const sortOrder = (searchParams.get('sortOrder') as 'asc' | 'desc') || 'desc';
     const minRevenue = searchParams.get('minRevenue') ? parseFloat(searchParams.get('minRevenue')!) : undefined;
+    const monthsBack = searchParams.get('monthsBack') ? parseInt(searchParams.get('monthsBack')!) : 12;
     
     const limit = 50;
     const offset = (page - 1) * limit;
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
       county,
       city,
       minRevenue,
+      monthsBack,
       sortBy,
       sortOrder,
       page,
@@ -41,6 +43,7 @@ export async function GET(request: Request) {
         city,
         metroplex,
         minRevenue,
+        monthsBack,
         sortBy,
         sortOrder,
         limit,
@@ -52,6 +55,7 @@ export async function GET(request: Request) {
         city,
         metroplex,
         minRevenue,
+        monthsBack,
       }),
     ]);
     
