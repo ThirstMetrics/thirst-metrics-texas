@@ -26,7 +26,7 @@ export async function createServerClient() {
   
   // Create a client that uses cookies for session management
   // In server components/API routes, we can only read cookies, not write them
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
+  const client = createClient(supabaseUrl!, supabaseAnonKey!, {
     auth: {
       storage: {
         getItem: (key: string) => {
@@ -60,7 +60,7 @@ export function createServiceClient() {
     );
   }
   
-  return createClient(supabaseUrl, serviceRoleKey, {
+  return createClient(supabaseUrl!, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
