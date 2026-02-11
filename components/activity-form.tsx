@@ -76,8 +76,9 @@ export default function ActivityForm(props: ActivityFormProps) {
   const [pendingPhotoType, setPendingPhotoType] = useState<PhotoType>('other');
   const [photoUploadProgress, setPhotoUploadProgress] = useState<string | null>(null);
   
-  // Capture GPS on mount
-  useEffect(() => {
+  // GPS capture function (reusable for retry)
+  const captureGps = () => {
+    setGpsError(null);
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -86,19 +87,25 @@ export default function ActivityForm(props: ActivityFormProps) {
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy || 0,
           });
+          setGpsError(null);
         },
         (err) => {
           setGpsError(`GPS error: ${err.message}`);
         },
         {
           enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0,
+          timeout: 30000,  // Increased from 10s to 30s
+          maximumAge: 60000,  // Allow cached position up to 1 minute old
         }
       );
     } else {
       setGpsError('Geolocation not supported');
     }
+  };
+
+  // Capture GPS on mount
+  useEffect(() => {
+    captureGps();
   }, []);
   
   const handleSubmit = async (e: React.FormEvent) => {
@@ -253,9 +260,18 @@ export default function ActivityForm(props: ActivityFormProps) {
             {gpsLocation.accuracy > 0 && ` (accuracy: ${Math.round(gpsLocation.accuracy)}m)`}
           </div>
         ) : gpsError ? (
-          <div style={styles.gpsError}>⚠ {gpsError}</div>
+          <div style={styles.gpsErrorContainer}>
+            <span style={styles.gpsError}>⚠ {gpsError}</span>
+            <button
+              type="button"
+              onClick={captureGps}
+              style={styles.gpsRetryButton}
+            >
+              Retry GPS
+            </button>
+          </div>
         ) : (
-          <div style={styles.gpsLoading}>Capturing GPS location...</div>
+          <div style={styles.gpsLoading}>📍 Capturing GPS location...</div>
         )}
       </div>
       
@@ -631,6 +647,21 @@ const styles = {
   gpsError: {
     color: '#ff6b6b',
     fontSize: '14px',
+  },
+  gpsErrorContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap' as const,
+  },
+  gpsRetryButton: {
+    padding: '6px 12px',
+    background: '#0d7377',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
   },
   gpsLoading: {
     color: '#666',
