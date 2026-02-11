@@ -370,7 +370,7 @@ const beverageTerms: Record<string, string> = {
   'oro': 'oro',
   '0ro': 'oro',
   'p1ata': 'plata',
-  'p1ata': 'plata',
+  'plata': 'plata',
   's1lver': 'silver',
   'cristal1no': 'cristalino',
 
