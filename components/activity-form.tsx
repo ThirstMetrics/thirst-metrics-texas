@@ -9,8 +9,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import imageCompression from 'browser-image-compression';
-import { supabase } from '@/lib/supabase/client';
-import { uploadActivityPhoto, type PhotoType } from '@/lib/activity-photos';
+
+// PhotoType for the server-side upload
+type PhotoType = 'receipt' | 'menu' | 'product_display' | 'shelf' | 'other';
 
 const MAX_PHOTOS = typeof process.env.NEXT_PUBLIC_MAX_PHOTOS_PER_ACTIVITY === 'string'
   ? Math.min(10, Math.max(1, parseInt(process.env.NEXT_PUBLIC_MAX_PHOTOS_PER_ACTIVITY, 10) || 5))
@@ -170,13 +171,24 @@ export default function ActivityForm(props: ActivityFormProps) {
         setPhotoUploadProgress(`Uploading ${pendingPhotos.length} photo(s)...`);
         for (let i = 0; i < pendingPhotos.length; i++) {
           setPhotoUploadProgress(`Photo ${i + 1} of ${pendingPhotos.length}...`);
-          await uploadActivityPhoto(
-            supabase,
-            activityId,
-            pendingPhotos[i],
-            permitNumber,
-            pendingPhotoType
-          );
+
+          // Upload via server-side API (bypasses RLS)
+          const photoFormData = new FormData();
+          photoFormData.append('file', pendingPhotos[i]);
+          photoFormData.append('activityId', activityId);
+          photoFormData.append('permitNumber', permitNumber);
+          photoFormData.append('photoType', pendingPhotoType);
+
+          const photoResponse = await fetch('/api/photos', {
+            method: 'POST',
+            body: photoFormData,
+          });
+
+          if (!photoResponse.ok) {
+            const photoError = await photoResponse.json();
+            console.error(`Photo ${i + 1} upload failed:`, photoError);
+            // Continue with other photos even if one fails
+          }
         }
         setPhotoUploadProgress(null);
       }
