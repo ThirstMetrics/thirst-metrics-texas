@@ -73,9 +73,23 @@ export default function ActivityForm(props: ActivityFormProps) {
     },
   });
   
-  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
-  const [pendingPhotoType, setPendingPhotoType] = useState<PhotoType>('other');
+  // Per-photo type: each photo has its own type
+  const [pendingPhotos, setPendingPhotos] = useState<Array<{file: File, type: PhotoType}>>([]);
+  const [selectedPhotoType, setSelectedPhotoType] = useState<PhotoType>('menu'); // Default type for new photos
   const [photoUploadProgress, setPhotoUploadProgress] = useState<string | null>(null);
+
+  // Section expansion state - Basic Info always expanded, others collapsed by default
+  const [expandedSections, setExpandedSections] = useState({
+    basicInfo: true,
+    contact: false,
+    salesIntel: false,
+    availability: false,
+    photos: true,  // Photos always expanded for quick capture
+  });
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
   
   // GPS capture function (reusable for retry)
   const captureGps = () => {
@@ -170,14 +184,15 @@ export default function ActivityForm(props: ActivityFormProps) {
       if (activityId && pendingPhotos.length > 0) {
         setPhotoUploadProgress(`Uploading ${pendingPhotos.length} photo(s)...`);
         for (let i = 0; i < pendingPhotos.length; i++) {
+          const photo = pendingPhotos[i];
           setPhotoUploadProgress(`Photo ${i + 1} of ${pendingPhotos.length}...`);
 
           // Upload via server-side API (bypasses RLS)
           const photoFormData = new FormData();
-          photoFormData.append('file', pendingPhotos[i]);
+          photoFormData.append('file', photo.file);
           photoFormData.append('activityId', activityId);
           photoFormData.append('permitNumber', permitNumber);
-          photoFormData.append('photoType', pendingPhotoType);
+          photoFormData.append('photoType', photo.type); // Use per-photo type
 
           const photoResponse = await fetch('/api/photos', {
             method: 'POST',
@@ -230,21 +245,34 @@ export default function ActivityForm(props: ActivityFormProps) {
       return;
     }
     setError(null);
-    const compressed: File[] = [];
+    const newPhotos: Array<{file: File, type: PhotoType}> = [];
     for (const file of files) {
       try {
-        const c = await imageCompression(file, {
+        const compressed = await imageCompression(file, {
           maxSizeMB: 0.5,
           maxWidthOrHeight: 1920,
           useWebWorker: true,
+          fileType: 'image/jpeg',
         });
-        compressed.push(c);
+        // Convert Blob to File with proper metadata for multipart upload
+        const compressedFile = new File(
+          [compressed],
+          file.name.replace(/\.[^.]+$/, '.jpg'),
+          { type: 'image/jpeg', lastModified: Date.now() }
+        );
+        newPhotos.push({ file: compressedFile, type: selectedPhotoType });
       } catch {
-        compressed.push(file);
+        newPhotos.push({ file, type: selectedPhotoType });
       }
     }
-    setPendingPhotos((prev) => [...prev, ...compressed]);
+    setPendingPhotos((prev) => [...prev, ...newPhotos]);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const updatePhotoType = (index: number, newType: PhotoType) => {
+    setPendingPhotos((prev) =>
+      prev.map((photo, i) => i === index ? { ...photo, type: newType } : photo)
+    );
   };
 
   const removePendingPhoto = (index: number) => {
@@ -289,7 +317,16 @@ export default function ActivityForm(props: ActivityFormProps) {
       
       {/* Basic Info */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>Basic Information</h3>
+        <button
+          type="button"
+          onClick={() => toggleSection('basicInfo')}
+          style={styles.sectionHeader}
+        >
+          <h3 style={styles.sectionTitle}>Basic Information</h3>
+          <span style={styles.expandIcon}>{expandedSections.basicInfo ? '▼' : '▶'}</span>
+        </button>
+        {expandedSections.basicInfo && (
+        <>
         <div style={styles.fieldGrid}>
           <div style={styles.field}>
             <label style={styles.label}>Activity Type *</label>
@@ -305,7 +342,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               <option value="note">Note</option>
             </select>
           </div>
-          
+
           <div style={styles.field}>
             <label style={styles.label}>Activity Date *</label>
             <input
@@ -316,7 +353,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               style={styles.input}
             />
           </div>
-          
+
           <div style={styles.field}>
             <label style={styles.label}>Outcome</label>
             <select
@@ -331,7 +368,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               <option value="no_contact">No Contact</option>
             </select>
           </div>
-          
+
           <div style={styles.field}>
             <label style={styles.label}>Next Follow-up Date</label>
             <input
@@ -342,7 +379,7 @@ export default function ActivityForm(props: ActivityFormProps) {
             />
           </div>
         </div>
-        
+
         <div style={styles.field}>
           <label style={styles.label}>Notes</label>
           <textarea
@@ -353,11 +390,22 @@ export default function ActivityForm(props: ActivityFormProps) {
             placeholder="Enter activity notes..."
           />
         </div>
+        </>
+        )}
       </div>
-      
+
       {/* Contact Information */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>Contact Information</h3>
+        <button
+          type="button"
+          onClick={() => toggleSection('contact')}
+          style={styles.sectionHeader}
+        >
+          <h3 style={styles.sectionTitle}>Contact Information</h3>
+          <span style={styles.expandIcon}>{expandedSections.contact ? '▼' : '▶'}</span>
+        </button>
+        {expandedSections.contact && (
+        <>
         <div style={styles.fieldGrid}>
           <div style={styles.field}>
             <label style={styles.label}>Contact Name</label>
@@ -368,7 +416,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               style={styles.input}
             />
           </div>
-          
+
           <div style={styles.field}>
             <label style={styles.label}>Cell Phone</label>
             <input
@@ -378,7 +426,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               style={styles.input}
             />
           </div>
-          
+
           <div style={styles.field}>
             <label style={styles.label}>Email</label>
             <input
@@ -388,7 +436,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               style={styles.input}
             />
           </div>
-          
+
           <div style={styles.field}>
             <label style={styles.label}>Preferred Method</label>
             <select
@@ -404,7 +452,7 @@ export default function ActivityForm(props: ActivityFormProps) {
             </select>
           </div>
         </div>
-        
+
         <div style={styles.field}>
           <label style={styles.checkboxLabel}>
             <input
@@ -416,12 +464,22 @@ export default function ActivityForm(props: ActivityFormProps) {
             Decision Maker
           </label>
         </div>
+        </>
+        )}
       </div>
-      
+
       {/* Sales Intel */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>Sales Intelligence</h3>
-        
+        <button
+          type="button"
+          onClick={() => toggleSection('salesIntel')}
+          style={styles.sectionHeader}
+        >
+          <h3 style={styles.sectionTitle}>Sales Intelligence</h3>
+          <span style={styles.expandIcon}>{expandedSections.salesIntel ? '▼' : '▶'}</span>
+        </button>
+        {expandedSections.salesIntel && (
+        <>
         <div style={styles.field}>
           <label style={styles.label}>Conversation Summary</label>
           <textarea
@@ -493,11 +551,21 @@ export default function ActivityForm(props: ActivityFormProps) {
             placeholder="What's the next action item?"
           />
         </div>
+        </>
+        )}
       </div>
-      
+
       {/* Availability */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>Availability</h3>
+        <button
+          type="button"
+          onClick={() => toggleSection('availability')}
+          style={styles.sectionHeader}
+        >
+          <h3 style={styles.sectionTitle}>Availability</h3>
+          <span style={styles.expandIcon}>{expandedSections.availability ? '▼' : '▶'}</span>
+        </button>
+        {expandedSections.availability && (
         <div style={styles.availabilityGrid}>
           {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => (
             <div key={day} style={styles.availabilityDay}>
@@ -539,48 +607,76 @@ export default function ActivityForm(props: ActivityFormProps) {
             </div>
           ))}
         </div>
+        )}
       </div>
-      
+
       {/* Photo Upload - compression and OCR run when activity is saved */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>Photos (Optional)</h3>
+        <button
+          type="button"
+          onClick={() => toggleSection('photos')}
+          style={styles.sectionHeader}
+        >
+          <h3 style={styles.sectionTitle}>Photos {pendingPhotos.length > 0 && `(${pendingPhotos.length})`}</h3>
+          <span style={styles.expandIcon}>{expandedSections.photos ? '▼' : '▶'}</span>
+        </button>
+        {expandedSections.photos && (
+        <>
         <p style={styles.helpText}>
           Add up to {MAX_PHOTOS} photos. They will be compressed, uploaded, and OCR processed when you save.
         </p>
-        <div style={styles.field}>
-          <label style={styles.label}>Photo type</label>
-          <select
-            value={pendingPhotoType}
-            onChange={(e) => setPendingPhotoType(e.target.value as PhotoType)}
-            style={styles.select}
-          >
-            <option value="other">Other</option>
-            <option value="receipt">Receipt</option>
-            <option value="menu">Menu</option>
-            <option value="product_display">Product display</option>
-            <option value="shelf">Shelf</option>
-          </select>
+
+        {/* Photo Type Tabs - quick selection for new photos */}
+        <div style={styles.photoTypeTabs}>
+          {(['menu', 'receipt', 'product_display', 'shelf', 'other'] as PhotoType[]).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setSelectedPhotoType(type)}
+              style={{
+                ...styles.photoTypeTab,
+                ...(selectedPhotoType === type ? styles.photoTypeTabActive : {}),
+              }}
+            >
+              {type === 'product_display' ? 'Display' : type.charAt(0).toUpperCase() + type.slice(1)}
+            </button>
+          ))}
         </div>
+
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          multiple
+          capture="environment"
           onChange={handlePhotoSelect}
           style={styles.fileInput}
           disabled={loading || pendingPhotos.length >= MAX_PHOTOS}
         />
         {pendingPhotos.length > 0 && (
           <div style={styles.photos}>
-            {pendingPhotos.map((file, index) => (
+            {pendingPhotos.map((photo, index) => (
               <div key={index} style={styles.photoItem}>
                 <img
-                  src={URL.createObjectURL(file)}
+                  src={URL.createObjectURL(photo.file)}
                   alt={`Preview ${index + 1}`}
                   style={styles.preview}
                 />
-                <div style={styles.photoMeta}>
-                  {(file.size / 1024).toFixed(1)} KB
+                <div style={styles.photoItemFooter}>
+                  <select
+                    value={photo.type}
+                    onChange={(e) => updatePhotoType(index, e.target.value as PhotoType)}
+                    style={styles.photoTypeSelect}
+                    disabled={loading}
+                  >
+                    <option value="menu">Menu</option>
+                    <option value="receipt">Receipt</option>
+                    <option value="product_display">Display</option>
+                    <option value="shelf">Shelf</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <span style={styles.photoSize}>
+                    {(photo.file.size / 1024).toFixed(0)}KB
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -598,8 +694,10 @@ export default function ActivityForm(props: ActivityFormProps) {
         {photoUploadProgress && (
           <div style={styles.photoProgress}>{photoUploadProgress}</div>
         )}
+        </>
+        )}
       </div>
-      
+
       {/* Submit */}
       <div style={styles.actions}>
         <button type="submit" disabled={loading} style={styles.submitButton}>
@@ -680,15 +778,29 @@ const styles = {
     fontSize: '14px',
   },
   section: {
-    marginBottom: '32px',
-    paddingBottom: '24px',
+    marginBottom: '16px',
     borderBottom: '1px solid #eee',
   },
+  sectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    padding: '12px 0',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    textAlign: 'left' as const,
+  },
   sectionTitle: {
-    fontSize: '18px',
+    fontSize: '16px',
     fontWeight: '600',
-    marginBottom: '16px',
+    margin: 0,
     color: '#333',
+  },
+  expandIcon: {
+    fontSize: '12px',
+    color: '#666',
   },
   fieldGrid: {
     display: 'grid',
@@ -822,5 +934,48 @@ const styles = {
     marginTop: '12px',
     fontSize: '14px',
     color: '#667eea',
+  },
+  photoTypeTabs: {
+    display: 'flex',
+    gap: '4px',
+    marginBottom: '12px',
+    flexWrap: 'wrap' as const,
+  },
+  photoTypeTab: {
+    padding: '8px 12px',
+    border: '1px solid #ddd',
+    borderRadius: '20px',
+    background: 'white',
+    color: '#666',
+    fontSize: '13px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  photoTypeTabActive: {
+    background: '#0d7377',
+    color: 'white',
+    borderColor: '#0d7377',
+  },
+  photoItemFooter: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '4px 6px',
+    background: '#f9f9f9',
+    borderTop: '1px solid #eee',
+  },
+  photoTypeSelect: {
+    flex: 1,
+    padding: '4px',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    fontSize: '11px',
+    background: 'white',
+    cursor: 'pointer',
+  },
+  photoSize: {
+    fontSize: '10px',
+    color: '#999',
+    marginLeft: '4px',
   },
 };
