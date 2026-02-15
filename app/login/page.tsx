@@ -18,6 +18,7 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,12 +39,22 @@ function LoginForm() {
 
       if (data.user && data.session) {
         // @supabase/ssr browser client automatically stores session in cookies
-        // Full page reload ensures middleware reads the new cookies
-        console.log('[LOGIN] Auth success. User:', data.user.email);
-        console.log('[LOGIN] Session access_token present:', !!data.session.access_token);
-        console.log('[LOGIN] All cookies after login:', document.cookie);
-        console.log('[LOGIN] Redirecting to:', redirectTo);
-        window.location.href = redirectTo;
+        // Show debug info on screen, then redirect after 5 seconds
+        const cookies = document.cookie;
+        const cookieNames = cookies ? cookies.split(';').map(c => c.trim().split('=')[0]) : ['(none)'];
+        const info = [
+          `✅ Auth success: ${data.user.email}`,
+          `🔑 Token present: ${!!data.session.access_token}`,
+          `🍪 Cookies found: ${cookieNames.length}`,
+          `📋 Cookie names: ${cookieNames.join(', ')}`,
+          `🔗 Redirecting to: ${redirectTo} in 8s...`,
+        ].join('\n');
+        setDebugInfo(info);
+        setLoading(false);
+        // Wait 8 seconds so user can screenshot, then redirect
+        setTimeout(() => {
+          window.location.href = redirectTo;
+        }, 8000);
       } else {
         setError('Authentication failed. Please try again.');
         setLoading(false);
@@ -60,6 +71,12 @@ function LoginForm() {
       <div style={styles.card}>
         <h1 style={styles.title}>Thirst Metrics Texas</h1>
         <p style={styles.subtitle}>Sign in to your account</p>
+
+        {debugInfo && (
+          <div style={{ padding: '12px', background: '#e8f5e9', color: '#1b5e20', borderRadius: '6px', marginBottom: '20px', fontSize: '13px', whiteSpace: 'pre-wrap', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+            {debugInfo}
+          </div>
+        )}
 
         {error && (
           <div style={styles.error}>
