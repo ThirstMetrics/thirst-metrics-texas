@@ -18,7 +18,6 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,13 +38,10 @@ function LoginForm() {
       }
 
       if (data.user && data.session) {
-        const debugLines: string[] = [];
-        debugLines.push(`✅ Auth success: ${data.user.email}`);
-
-        // Step 2: Sync session to server-side cookies via API route
+        // Sync session to server-side cookies via API route
         // This sets cookies in @supabase/ssr format so middleware can read them
         try {
-          const syncResponse = await fetch('/api/auth/sync', {
+          await fetch('/api/auth/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -53,26 +49,12 @@ function LoginForm() {
               refresh_token: data.session.refresh_token,
             }),
           });
-
-          const syncResult = await syncResponse.json();
-          debugLines.push(`🔄 Sync: ${syncResponse.status} ${syncResult.success ? 'OK' : syncResult.error || 'failed'}`);
         } catch (syncErr) {
-          debugLines.push(`❌ Sync failed: ${syncErr}`);
+          console.error('[LOGIN] Sync failed:', syncErr);
         }
 
-        // Step 3: Show debug info briefly, then redirect
-        const cookies = document.cookie;
-        const cookieNames = cookies ? cookies.split(';').map(c => c.trim().split('=')[0]) : [];
-        debugLines.push(`🍪 Cookies: ${cookieNames.length > 0 ? cookieNames.join(', ') : '(httpOnly — hidden from JS)'}`);
-        debugLines.push(`🔗 Redirecting to ${redirectTo} in 5s...`);
-
-        setDebugInfo(debugLines.join('\n'));
-        setLoading(false);
-
-        // Step 4: Full page reload — middleware will read the server-set cookies
-        setTimeout(() => {
-          window.location.href = redirectTo;
-        }, 5000);
+        // Full page reload — middleware will read the server-set cookies
+        window.location.href = redirectTo;
       } else {
         setError('Authentication failed. Please try again.');
         setLoading(false);
@@ -89,12 +71,6 @@ function LoginForm() {
       <div style={styles.card}>
         <h1 style={styles.title}>Thirst Metrics Texas</h1>
         <p style={styles.subtitle}>Sign in to your account</p>
-
-        {debugInfo && (
-          <div style={{ padding: '12px', background: '#e8f5e9', color: '#1b5e20', borderRadius: '6px', marginBottom: '20px', fontSize: '13px', whiteSpace: 'pre-wrap', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-            {debugInfo}
-          </div>
-        )}
 
         {error && (
           <div style={styles.error}>
