@@ -1,7 +1,7 @@
 /**
  * Login Page
  * Email/password authentication with Supabase
- * Session is automatically stored in cookies by @supabase/ssr browser client
+ * After sign-in, syncs session to server-side cookies via /api/auth/sync
  */
 
 'use client';
@@ -26,6 +26,7 @@ function LoginForm() {
     setError(null);
 
     try {
+      // Step 1: Authenticate with Supabase
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -38,23 +39,40 @@ function LoginForm() {
       }
 
       if (data.user && data.session) {
-        // @supabase/ssr browser client automatically stores session in cookies
-        // Show debug info on screen, then redirect after 5 seconds
+        const debugLines: string[] = [];
+        debugLines.push(`✅ Auth success: ${data.user.email}`);
+
+        // Step 2: Sync session to server-side cookies via API route
+        // This sets cookies in @supabase/ssr format so middleware can read them
+        try {
+          const syncResponse = await fetch('/api/auth/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              access_token: data.session.access_token,
+              refresh_token: data.session.refresh_token,
+            }),
+          });
+
+          const syncResult = await syncResponse.json();
+          debugLines.push(`🔄 Sync: ${syncResponse.status} ${syncResult.success ? 'OK' : syncResult.error || 'failed'}`);
+        } catch (syncErr) {
+          debugLines.push(`❌ Sync failed: ${syncErr}`);
+        }
+
+        // Step 3: Show debug info briefly, then redirect
         const cookies = document.cookie;
-        const cookieNames = cookies ? cookies.split(';').map(c => c.trim().split('=')[0]) : ['(none)'];
-        const info = [
-          `✅ Auth success: ${data.user.email}`,
-          `🔑 Token present: ${!!data.session.access_token}`,
-          `🍪 Cookies found: ${cookieNames.length}`,
-          `📋 Cookie names: ${cookieNames.join(', ')}`,
-          `🔗 Redirecting to: ${redirectTo} in 8s...`,
-        ].join('\n');
-        setDebugInfo(info);
+        const cookieNames = cookies ? cookies.split(';').map(c => c.trim().split('=')[0]) : [];
+        debugLines.push(`🍪 Cookies: ${cookieNames.length > 0 ? cookieNames.join(', ') : '(httpOnly — hidden from JS)'}`);
+        debugLines.push(`🔗 Redirecting to ${redirectTo} in 5s...`);
+
+        setDebugInfo(debugLines.join('\n'));
         setLoading(false);
-        // Wait 8 seconds so user can screenshot, then redirect
+
+        // Step 4: Full page reload — middleware will read the server-set cookies
         setTimeout(() => {
           window.location.href = redirectTo;
-        }, 8000);
+        }, 5000);
       } else {
         setError('Authentication failed. Please try again.');
         setLoading(false);
