@@ -78,11 +78,11 @@ function convertBigIntToNumber(obj: any): any {
   if (obj === null || obj === undefined) {
     return obj;
   }
-  
+
   if (typeof obj === 'bigint') {
     return Number(obj);
   }
-  
+
   // Handle string numbers (common with DECIMAL types from DuckDB)
   if (typeof obj === 'string' && !isNaN(Number(obj)) && obj.trim() !== '') {
     const num = Number(obj);
@@ -91,11 +91,22 @@ function convertBigIntToNumber(obj: any): any {
       return num;
     }
   }
-  
+
+  // Handle DuckDB Decimal objects: { width, scale, value } where value is a bigint
+  // DECIMAL(10,8) returns { width: 10, scale: 8, value: 2975200458n }
+  // Real value = value / 10^scale
+  if (typeof obj === 'object' && !Array.isArray(obj) && obj !== null) {
+    if ('width' in obj && 'scale' in obj && 'value' in obj) {
+      const scale = Number(obj.scale);
+      const value = typeof obj.value === 'bigint' ? Number(obj.value) : Number(obj.value);
+      return value / Math.pow(10, scale);
+    }
+  }
+
   if (Array.isArray(obj)) {
     return obj.map(convertBigIntToNumber);
   }
-  
+
   if (typeof obj === 'object') {
     const converted: any = {};
     for (const [key, value] of Object.entries(obj)) {
@@ -103,7 +114,7 @@ function convertBigIntToNumber(obj: any): any {
     }
     return converted;
   }
-  
+
   return obj;
 }
 
