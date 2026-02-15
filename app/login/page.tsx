@@ -39,6 +39,10 @@ function LoginForm() {
       if (data.user && data.session) {
         // @supabase/ssr browser client automatically stores session in cookies
         // Full page reload ensures middleware reads the new cookies
+        console.log('[LOGIN] Auth success. User:', data.user.email);
+        console.log('[LOGIN] Session access_token present:', !!data.session.access_token);
+        console.log('[LOGIN] All cookies after login:', document.cookie);
+        console.log('[LOGIN] Redirecting to:', redirectTo);
         window.location.href = redirectTo;
       } else {
         setError('Authentication failed. Please try again.');

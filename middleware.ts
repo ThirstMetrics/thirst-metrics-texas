@@ -42,11 +42,17 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
+    // Debug: Log all cookies the middleware sees
+    const allCookies = request.cookies.getAll();
+    console.log('[Middleware]', pathname, 'cookies:', allCookies.map(c => c.name));
+
     const { supabase, response } = await createMiddlewareClient(request);
 
     // Refresh session - this is critical for keeping the session alive
     // and properly reading chunked cookies set by @supabase/ssr
     const { data: { user }, error } = await supabase.auth.getUser();
+
+    console.log('[Middleware]', pathname, 'user:', user?.email || 'none', 'error:', error?.message || 'none');
 
     if (error || !user) {
       const redirectUrl = new URL('/login', request.url);
