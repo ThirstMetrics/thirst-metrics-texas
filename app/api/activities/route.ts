@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { createServerClient, createServiceClient } from '@/lib/supabase/server';
 import { createActivity } from '@/lib/data/activities';
 
 export async function POST(request: Request) {
@@ -42,27 +42,30 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
+    // Use service client for data fetching to bypass RLS on activity_photos
+    const serviceClient = createServiceClient();
+
     const { searchParams } = new URL(request.url);
     const permitNumber = searchParams.get('permitNumber');
-    
+
     if (permitNumber) {
-      const { data, error } = await supabase
+      const { data, error } = await serviceClient
         .from('sales_activities')
-        .select('*')
+        .select('*, activity_photos(*)')
         .eq('tabc_permit_number', permitNumber)
         .order('activity_date', { ascending: false });
-      
+
       if (error) throw error;
       return NextResponse.json({ activities: data });
     }
-    
+
     // Get user's activities
-    const { data, error } = await supabase
+    const { data, error } = await serviceClient
       .from('sales_activities')
-      .select('*')
+      .select('*, activity_photos(*)')
       .eq('user_id', user.id)
       .order('activity_date', { ascending: false });
-    
+
     if (error) throw error;
     return NextResponse.json({ activities: data });
   } catch (error: any) {

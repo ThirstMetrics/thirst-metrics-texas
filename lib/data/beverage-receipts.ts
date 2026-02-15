@@ -52,8 +52,6 @@ export async function getCustomers(filters?: {
   sortByRevenue?: 'total' | 'wine' | 'beer' | 'liquor' | 'cover_charge';
   topN?: number;
 }): Promise<CustomerRevenue[]> {
-  console.log('[getCustomers] Called with filters:', filters);
-  
   let sql = `
     SELECT 
       m.tabc_permit_number,
@@ -81,8 +79,6 @@ export async function getCustomers(filters?: {
 
   const params: any[] = [];
 
-  console.log('[getCustomers] Initial SQL:', sql);
-
   // Time period filter - calculate cutoff date
   if (filters?.monthsBack) {
     const cutoffDate = new Date();
@@ -90,7 +86,6 @@ export async function getCustomers(filters?: {
     const cutoffStr = cutoffDate.toISOString().split('T')[0]; // YYYY-MM-DD format
     sql += ` AND m.obligation_end_date >= ?`;
     params.push(cutoffStr);
-    console.log('[getCustomers] Applying monthsBack filter:', filters.monthsBack, 'cutoff:', cutoffStr);
   }
 
   if (filters?.county) {
@@ -163,18 +158,9 @@ export async function getCustomers(filters?: {
       params.push(filters.offset);
     }
   }
-  
-  console.log('[getCustomers] Final SQL:', sql);
-  console.log('[getCustomers] Params:', params);
-  
-  try {
-    const results = await query<CustomerRevenue>(sql, params);
-    console.log('[getCustomers] Query returned', results.length, 'results');
-    return results;
-  } catch (error: any) {
-    console.error('[getCustomers] Query error:', error);
-    throw error;
-  }
+
+  const results = await query<CustomerRevenue>(sql, params);
+  return results;
 }
 
 /**
@@ -208,15 +194,9 @@ export async function getCustomerByPermit(permitNumber: string): Promise<Custome
     GROUP BY m.tabc_permit_number, e.clean_dba_name
     LIMIT 1
   `;
-  
-  console.log('[getCustomerByPermit] Query for permit:', permitNumber);
-  try {
-    const result = await queryOne<CustomerRevenue>(sql, [permitNumber]);
-    return result;
-  } catch (error: any) {
-    console.error('[getCustomerByPermit] Error:', error);
-    throw error;
-  }
+
+  const result = await queryOne<CustomerRevenue>(sql, [permitNumber]);
+  return result;
 }
 
 /**
@@ -249,20 +229,8 @@ export async function getCustomerMonthlyRevenue(
     ORDER BY right(location_month_key, 6) ASC
   `;
 
-  console.log('[getCustomerMonthlyRevenue] Permit:', permitNumber);
-  console.log('[getCustomerMonthlyRevenue] Cutoff YYYYMM:', cutoffYYYYMM);
-
-  try {
-    const results = await query<MonthlyRevenue & { month_raw?: string }>(sql, [permitNumber, cutoffYYYYMM]);
-    console.log('[getCustomerMonthlyRevenue] Results:', results.length, 'months');
-    if (results.length > 0) {
-      console.log('[getCustomerMonthlyRevenue] First result:', results[0]);
-    }
-    return results as MonthlyRevenue[];
-  } catch (error: any) {
-    console.error('[getCustomerMonthlyRevenue] Error:', error);
-    throw error;
-  }
+  const results = await query<MonthlyRevenue & { month_raw?: string }>(sql, [permitNumber, cutoffYYYYMM]);
+  return results as MonthlyRevenue[];
 }
 
 /**

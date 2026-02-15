@@ -131,8 +131,9 @@ export async function getUserActivities(userId: string, filters?: {
  * Get activities for a customer (permit number), with nested activity_photos
  */
 export async function getCustomerActivities(permitNumber: string): Promise<SalesActivity[]> {
-  const supabase = await createServerClient();
-  
+  // Use service client to bypass RLS on activity_photos table
+  const supabase = createServiceClient();
+
   const { data, error } = await supabase
     .from('sales_activities')
     .select('*, activity_photos(*)')

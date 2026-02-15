@@ -10,8 +10,7 @@ export async function GET() {
   try {
     // Test 1: Simple count query
     const countResult = await query<{ count: bigint }>('SELECT COUNT(*) as count FROM mixed_beverage_receipts');
-    console.log('[TEST] Count result:', countResult);
-    
+
     // Test 2: Simple aggregation query
     const aggResult = await query(`
       SELECT 
@@ -22,8 +21,7 @@ export async function GET() {
       GROUP BY tabc_permit_number
       LIMIT 5
     `);
-    console.log('[TEST] Aggregation result:', aggResult);
-    
+
     // Test 3: Query with LIKE
     const searchResult = await query(`
       SELECT 
@@ -33,8 +31,7 @@ export async function GET() {
       WHERE location_name LIKE ?
       LIMIT 5
     `, ['%hooters%']);
-    console.log('[TEST] Search result:', searchResult);
-    
+
     return NextResponse.json({
       success: true,
       count: Number(countResult[0]?.count || 0),

@@ -29,18 +29,8 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('[OCR API] Processing image:', photoUrl);
-
     // Run OCR with beverage dictionary corrections
     const result = await processImageOCR(photoUrl);
-
-    console.log('[OCR API] Result:', {
-      success: result.success,
-      textLength: result.correctedText.length,
-      termsFound: result.beverageTerms.length,
-      confidence: result.confidence,
-      timeMs: result.processingTimeMs,
-    });
 
     // If activityPhotoId provided, update the database record
     if (activityPhotoId && result.success) {
@@ -54,10 +44,7 @@ export async function POST(request: Request) {
         .eq('id', activityPhotoId);
 
       if (updateError) {
-        console.error('[OCR API] Database update error:', updateError);
         // Don't fail the request, OCR still succeeded
-      } else {
-        console.log('[OCR API] Database record updated:', activityPhotoId);
       }
     }
 

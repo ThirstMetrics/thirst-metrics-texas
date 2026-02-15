@@ -9,7 +9,37 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { format, isValid, parseISO } from 'date-fns';
+import dynamic from 'next/dynamic';
 import { CustomerRevenue } from '@/lib/data/beverage-receipts';
+import { CustomerListSkeleton, MapSkeleton } from './skeleton';
+import ErrorFallback from './error-fallback';
+import { useIsMobile } from '@/lib/hooks/use-media-query';
+
+// Dynamically import CustomerMap to avoid SSR issues with Mapbox
+const CustomerMap = dynamic(() => import('./customer-map'), {
+  ssr: false,
+  loading: () => <div style={{ height: '500px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9', borderRadius: '10px' }}>Loading map...</div>,
+});
+
+// Dynamically import MobileCustomerView
+const MobileCustomerView = dynamic(() => import('./mobile-customer-view'), {
+  ssr: false,
+  loading: () => <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f1f5f9' }}>Loading...</div>,
+});
+
+// View mode type
+type ViewMode = 'list' | 'map';
+
+// Customer with coordinates for map
+interface CustomerWithCoords {
+  id: string;
+  name: string;
+  permit_number: string;
+  trade_name?: string;
+  lat: number;
+  lng: number;
+  address?: string;
+}
 
 interface CustomerListClientProps {
   initialPage: number;
@@ -22,6 +52,7 @@ interface CustomerListClientProps {
   initialMonthsBack?: number;
   limit: number;
   offset: number;
+  userId?: string;
 }
 
 // Time period options for filtering
@@ -46,7 +77,8 @@ const SORT_OPTIONS = [
 export default function CustomerListClient(props: CustomerListClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+  const isMobile = useIsMobile();
+
   const [customers, setCustomers] = useState<CustomerRevenue[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -74,9 +106,15 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   const [topN, setTopN] = useState<number | undefined>(undefined);
   const [counties, setCounties] = useState<{ county_code: string; county_name: string }[]>([]);
   const [metroplexes, setMetroplexes] = useState<{ metroplex: string }[]>([]);
-  
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [mapCustomers, setMapCustomers] = useState<CustomerWithCoords[]>([]);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+
   const loadCustomers = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       params.set('page', page.toString());
@@ -99,15 +137,17 @@ export default function CustomerListClient(props: CustomerListClientProps) {
 
       const response = await fetch(`/api/customers?${params.toString()}`);
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        throw new Error(`Failed to load customers (${response.status})`);
       }
 
       const data = await response.json();
 
       setCustomers(data.customers || []);
       setTotalCount(data.totalCount || 0);
-    } catch (error) {
-      console.error('Error loading customers:', error);
+    } catch (err) {
+      console.error('Error loading customers:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load customers';
+      setError(errorMessage);
       setCustomers([]);
       setTotalCount(0);
     } finally {
@@ -157,6 +197,40 @@ export default function CustomerListClient(props: CustomerListClientProps) {
     };
     fetchFilters();
   }, []);
+
+  // Load map coordinates when view mode changes to map
+  const loadMapCustomers = useCallback(async () => {
+    if (viewMode !== 'map') return;
+
+    setMapLoading(true);
+    setMapError(null);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (county) params.set('county', county);
+      if (city) params.set('city', city);
+      if (metroplex) params.set('metroplex', metroplex);
+      params.set('limit', '500'); // Max markers for performance
+
+      const response = await fetch(`/api/customers/coordinates?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load map data (${response.status})`);
+      }
+      const data = await response.json();
+      setMapCustomers(data.customers || []);
+    } catch (err) {
+      console.error('Error loading map coordinates:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load map data';
+      setMapError(errorMessage);
+      setMapCustomers([]);
+    } finally {
+      setMapLoading(false);
+    }
+  }, [viewMode, search, county, city, metroplex]);
+
+  useEffect(() => {
+    loadMapCustomers();
+  }, [loadMapCustomers]);
   
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,7 +280,19 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   };
   
   const totalPages = Math.ceil(totalCount / props.limit);
-  
+
+  // Render mobile-first map view on mobile devices
+  if (isMobile) {
+    return (
+      <MobileCustomerView
+        initialSearch={props.initialSearch}
+        initialCounty={props.initialCounty}
+        initialCity={props.initialCity}
+        userId={props.userId}
+      />
+    );
+  }
+
   return (
     <div>
       {/* Page Header - hides on scroll */}
@@ -220,18 +306,22 @@ export default function CustomerListClient(props: CustomerListClientProps) {
       </div>
 
       {/* Filters */}
-      <form onSubmit={handleSearch} style={styles.filters}>
+      <form onSubmit={handleSearch} style={{
+        ...styles.filters,
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: isMobile ? '8px' : '12px',
+      }}>
         <input
           type="text"
           placeholder="Search by permit, name, or address..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={styles.searchInput}
+          style={{ ...styles.searchInput, minHeight: isMobile ? '44px' : 'auto', width: isMobile ? '100%' : 'auto' }}
         />
         <select
           value={county}
           onChange={(e) => setCounty(e.target.value)}
-          style={styles.filterInput}
+          style={{ ...styles.filterInput, minHeight: isMobile ? '44px' : 'auto', width: isMobile ? '100%' : '140px' }}
         >
           <option value="">All Counties</option>
           {counties.map((c) => (
@@ -243,7 +333,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
         <select
           value={metroplex}
           onChange={(e) => setMetroplex(e.target.value)}
-          style={styles.filterInput}
+          style={{ ...styles.filterInput, minHeight: isMobile ? '44px' : 'auto', width: isMobile ? '100%' : '140px' }}
         >
           <option value="">All Metroplexes</option>
           {metroplexes.map((m) => (
@@ -257,34 +347,36 @@ export default function CustomerListClient(props: CustomerListClientProps) {
           placeholder="City..."
           value={city}
           onChange={(e) => setCity(e.target.value)}
-          style={styles.filterInput}
+          style={{ ...styles.filterInput, minHeight: isMobile ? '44px' : 'auto', width: isMobile ? '100%' : '140px' }}
         />
         <input
           type="number"
           placeholder="Min revenue..."
           value={minRevenue || ''}
           onChange={(e) => setMinRevenue(e.target.value ? parseFloat(e.target.value) : undefined)}
-          style={styles.filterInput}
+          style={{ ...styles.filterInput, minHeight: isMobile ? '44px' : 'auto', width: isMobile ? '100%' : '140px' }}
         />
-        <button type="submit" style={styles.searchButton}>
-          Search
-        </button>
-        {(search || county || city || metroplex || minRevenue) && (
-          <button
-            type="button"
-            onClick={() => {
-              setSearch('');
-              setCounty('');
-              setCity('');
-              setMetroplex('');
-              setMinRevenue(undefined);
-              setPage(1);
-            }}
-            style={styles.clearButton}
-          >
-            Clear
+        <div style={{ display: 'flex', gap: '8px', width: isMobile ? '100%' : 'auto' }}>
+          <button type="submit" style={{ ...styles.searchButton, flex: isMobile ? 1 : 'none', minHeight: isMobile ? '44px' : 'auto' }}>
+            Search
           </button>
-        )}
+          {(search || county || city || metroplex || minRevenue) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('');
+                setCounty('');
+                setCity('');
+                setMetroplex('');
+                setMinRevenue(undefined);
+                setPage(1);
+              }}
+              style={{ ...styles.clearButton, flex: isMobile ? 1 : 'none', minHeight: isMobile ? '44px' : 'auto' }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </form>
       
       {/* Results count */}
@@ -293,27 +385,41 @@ export default function CustomerListClient(props: CustomerListClientProps) {
       </div>
 
       {/* Time Period Selector + Sort + Top N */}
-      <div style={styles.timePeriodRow}>
-        <span style={styles.timePeriodLabel}>Time Period:</span>
-        <div style={styles.timePeriodButtons}>
-          {TIME_PERIODS.map((period) => (
-            <button
-              key={period.value}
-              onClick={() => {
-                setMonthsBack(period.value);
-                setPage(1);
-              }}
-              style={{
-                ...styles.timePeriodButton,
-                ...(monthsBack === period.value ? styles.timePeriodButtonActive : {}),
-              }}
-            >
-              {period.label}
-            </button>
-          ))}
+      <div style={{
+        ...styles.timePeriodRow,
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : 'center',
+        gap: isMobile ? '12px' : '12px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={styles.timePeriodLabel}>Time Period:</span>
+          <div style={{ ...styles.timePeriodButtons, flexWrap: 'wrap' }}>
+            {(isMobile ? TIME_PERIODS.slice(0, 4) : TIME_PERIODS).map((period) => (
+              <button
+                key={period.value}
+                onClick={() => {
+                  setMonthsBack(period.value);
+                  setPage(1);
+                }}
+                style={{
+                  ...styles.timePeriodButton,
+                  ...(monthsBack === period.value ? styles.timePeriodButtonActive : {}),
+                  padding: isMobile ? '6px 10px' : '8px 14px',
+                }}
+              >
+                {period.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div style={styles.sortSection}>
+        <div style={{
+          ...styles.sortSection,
+          marginLeft: isMobile ? 0 : '16px',
+          paddingLeft: isMobile ? 0 : '16px',
+          borderLeft: isMobile ? 'none' : '1px solid #e2e8f0',
+          width: isMobile ? '100%' : 'auto',
+        }}>
           <span style={styles.timePeriodLabel}>Sort:</span>
           <select
             value={sortByRevenue}
@@ -321,7 +427,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
               setSortByRevenue(e.target.value);
               setPage(1);
             }}
-            style={styles.sortDropdown}
+            style={{ ...styles.sortDropdown, flex: isMobile ? 1 : 'none', minHeight: isMobile ? '44px' : 'auto' }}
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -329,7 +435,13 @@ export default function CustomerListClient(props: CustomerListClientProps) {
           </select>
         </div>
 
-        <div style={styles.topNSection}>
+        <div style={{
+          ...styles.topNSection,
+          marginLeft: isMobile ? 0 : '16px',
+          paddingLeft: isMobile ? 0 : '16px',
+          borderLeft: isMobile ? 'none' : '1px solid #e2e8f0',
+          width: isMobile ? '100%' : 'auto',
+        }}>
           <span style={styles.timePeriodLabel}>Top N:</span>
           <input
             type="number"
@@ -339,14 +451,48 @@ export default function CustomerListClient(props: CustomerListClientProps) {
               setTopN(e.target.value ? parseInt(e.target.value) : undefined);
               setPage(1);
             }}
-            style={styles.topNInput}
+            style={{ ...styles.topNInput, flex: isMobile ? 1 : 'none', minHeight: isMobile ? '44px' : 'auto' }}
             min={1}
           />
         </div>
       </div>
 
-      {/* Column toggles + top pagination (same row, pagination right-justified) */}
-      <div style={styles.toolbarRow}>
+      {/* View Mode Toggle + Column toggles + top pagination */}
+      <div style={{
+        ...styles.toolbarRow,
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : 'center',
+      }}>
+        {/* View Mode Toggle */}
+        <div style={{ ...styles.viewModeToggle, width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+          <button
+            onClick={() => setViewMode('list')}
+            style={{
+              ...styles.viewModeButton,
+              ...(viewMode === 'list' ? styles.viewModeButtonActive : {}),
+              flex: isMobile ? 1 : 'none',
+              justifyContent: 'center',
+            }}
+            title="List view"
+          >
+            <span style={styles.viewModeIcon}>☰</span> List
+          </button>
+          <button
+            onClick={() => setViewMode('map')}
+            style={{
+              ...styles.viewModeButton,
+              ...(viewMode === 'map' ? styles.viewModeButtonActive : {}),
+              flex: isMobile ? 1 : 'none',
+              justifyContent: 'center',
+            }}
+            title="Map view"
+          >
+            <span style={styles.viewModeIcon}>📍</span> Map
+          </button>
+        </div>
+
+        {/* Column toggles - only show in list view and hide on mobile */}
+        {viewMode === 'list' && !isMobile && (
         <div style={styles.columnToggles}>
           <button
             onClick={() => setVisibleColumns(v => ({ ...v, wine: !v.wine }))}
@@ -426,36 +572,93 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             Address
           </button>
         </div>
-        {totalPages > 1 && !loading && customers.length > 0 && (
-          <div style={styles.paginationInline}>
+        )}
+        {viewMode === 'list' && totalPages > 1 && !loading && customers.length > 0 && (
+          <div style={{ ...styles.paginationInline, width: isMobile ? '100%' : 'auto', justifyContent: 'center' }}>
             <button
               onClick={() => setPage(Math.max(1, page - 1))}
               disabled={page === 1}
-              style={styles.pageButton}
+              style={{ ...styles.pageButton, minHeight: isMobile ? '44px' : 'auto' }}
             >
-              Previous
+              {isMobile ? '<' : 'Previous'}
             </button>
             <span style={styles.pageInfo}>
-              Page {page} of {totalPages}
+              {isMobile ? `${page}/${totalPages}` : `Page ${page} of ${totalPages}`}
             </span>
             <button
               onClick={() => setPage(Math.min(totalPages, page + 1))}
               disabled={page === totalPages}
-              style={styles.pageButton}
+              style={{ ...styles.pageButton, minHeight: isMobile ? '44px' : 'auto' }}
             >
-              Next
+              {isMobile ? '>' : 'Next'}
             </button>
           </div>
         )}
       </div>
       
-      {/* Table */}
-      {loading ? (
-        <div style={styles.loading}>Loading customers...</div>
+      {/* Map View */}
+      {viewMode === 'map' && (
+        <div style={styles.mapContainer}>
+          {mapLoading ? (
+            <MapSkeleton height={600} />
+          ) : mapError ? (
+            <div style={{ padding: '20px' }}>
+              <ErrorFallback
+                title="Map Loading Error"
+                message={mapError}
+                onRetry={loadMapCustomers}
+              />
+            </div>
+          ) : mapCustomers.length === 0 ? (
+            <div style={styles.mapEmpty}>
+              <div style={styles.mapEmptyIcon}>📍</div>
+              <h3 style={styles.mapEmptyTitle}>No Geocoded Customers</h3>
+              <p style={styles.mapEmptyText}>
+                No customers with coordinates found matching your filters.
+                <br />
+                Customers need to be geocoded before they appear on the map.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div style={styles.mapInfo}>
+                Showing {mapCustomers.length} customers with coordinates
+              </div>
+              <CustomerMap
+                customers={mapCustomers}
+                height="600px"
+                showPopups={true}
+                onCustomerClick={(customerId) => {
+                  // Navigate to customer detail page
+                  const customer = mapCustomers.find(c => c.id === customerId);
+                  if (customer) {
+                    router.push(`/customers/${customer.permit_number}`);
+                  }
+                }}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Table View */}
+      {viewMode === 'list' && (
+        loading ? (
+        <CustomerListSkeleton rows={6} />
+      ) : error ? (
+        <ErrorFallback
+          title="Failed to Load Customers"
+          message={error}
+          onRetry={loadCustomers}
+        />
       ) : customers.length === 0 ? (
         <div style={styles.empty}>No customers found</div>
       ) : (
         <>
+          <div style={{
+            overflowX: isMobile ? 'auto' : 'visible',
+            WebkitOverflowScrolling: 'touch',
+          }}>
           <table style={styles.table}>
             <thead>
               <tr>
@@ -596,30 +799,32 @@ export default function CustomerListClient(props: CustomerListClientProps) {
               ))}
             </tbody>
           </table>
-          
+          </div>
+
           {/* Pagination */}
           {totalPages > 1 && (
-            <div style={styles.pagination}>
+            <div style={{ ...styles.pagination, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
               <button
                 onClick={() => setPage(Math.max(1, page - 1))}
                 disabled={page === 1}
-                style={styles.pageButton}
+                style={{ ...styles.pageButton, minHeight: isMobile ? '44px' : 'auto' }}
               >
-                Previous
+                {isMobile ? '<' : 'Previous'}
               </button>
               <span style={styles.pageInfo}>
-                Page {page} of {totalPages}
+                {isMobile ? `${page}/${totalPages}` : `Page ${page} of ${totalPages}`}
               </span>
               <button
                 onClick={() => setPage(Math.min(totalPages, page + 1))}
                 disabled={page === totalPages}
-                style={styles.pageButton}
+                style={{ ...styles.pageButton, minHeight: isMobile ? '44px' : 'auto' }}
               >
-                Next
+                {isMobile ? '>' : 'Next'}
               </button>
             </div>
           )}
         </>
+      )
       )}
     </div>
   );
@@ -938,5 +1143,81 @@ const styles = {
     textAlign: 'center' as const,
     fontWeight: '600',
     color: brandColors.primary,
+  },
+  // View mode toggle styles
+  viewModeToggle: {
+    display: 'flex',
+    gap: '4px',
+    backgroundColor: '#f1f5f9',
+    padding: '4px',
+    borderRadius: '8px',
+  },
+  viewModeButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 14px',
+    border: 'none',
+    borderRadius: '6px',
+    backgroundColor: 'transparent',
+    color: '#64748b',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  viewModeButtonActive: {
+    backgroundColor: 'white',
+    color: brandColors.primary,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  viewModeIcon: {
+    fontSize: '14px',
+  },
+  // Map container styles
+  mapContainer: {
+    backgroundColor: 'white',
+    borderRadius: '10px',
+    overflow: 'hidden',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+  },
+  mapInfo: {
+    padding: '12px 16px',
+    borderBottom: '1px solid #e2e8f0',
+    fontSize: '14px',
+    color: '#64748b',
+  },
+  mapLoading: {
+    height: '500px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#64748b',
+    fontSize: '16px',
+  },
+  mapEmpty: {
+    height: '500px',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '40px',
+    textAlign: 'center' as const,
+  },
+  mapEmptyIcon: {
+    fontSize: '48px',
+    marginBottom: '16px',
+  },
+  mapEmptyTitle: {
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#334155',
+    margin: '0 0 8px 0',
+  },
+  mapEmptyText: {
+    fontSize: '14px',
+    color: '#64748b',
+    margin: 0,
+    lineHeight: 1.6,
   },
 };

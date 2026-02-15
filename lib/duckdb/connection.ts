@@ -3,7 +3,7 @@
  * Uses InstanceCache to manage database instances efficiently
  */
 
-import { DuckDBInstance, DuckDBInstanceCache, DuckDBConnection, DuckDBPreparedStatement } from '@duckdb/node-api';
+import { DuckDBInstance, DuckDBConnection, DuckDBPreparedStatement } from '@duckdb/node-api';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -33,25 +33,41 @@ function resolveDuckDBPath(): string {
 
 const DUCKDB_PATH = resolveDuckDBPath();
 
-// Singleton cache – opens file once, reuses instance
-const cache = new DuckDBInstanceCache();
+// Singleton instance – opens file once in READ_ONLY mode, reuses across requests
 let dbInstance: DuckDBInstance | null = null;
+let dbInitializing: Promise<DuckDBInstance> | null = null;
 
 /**
- * Get or create DuckDB instance using the cache
+ * Get or create DuckDB instance in READ_ONLY mode.
+ * READ_ONLY avoids file locking issues when Next.js dev mode spawns multiple node workers.
  */
 async function getDb(): Promise<DuckDBInstance> {
-  if (!dbInstance) {
+  if (dbInstance) {
+    return dbInstance;
+  }
+
+  // Prevent multiple simultaneous initializations
+  if (dbInitializing) {
+    return dbInitializing;
+  }
+
+  dbInitializing = (async () => {
     if (!fs.existsSync(DUCKDB_PATH)) {
       throw new Error(
         `DuckDB database not found at: ${DUCKDB_PATH}\n` +
         `Please run 'npm run init:duckdb' to create the database.`
       );
     }
-    dbInstance = await cache.getOrCreateInstance(DUCKDB_PATH);
-    console.log('[DuckDB Neo] Instance cached');
-  }
-  return dbInstance;
+    console.log(`[DuckDB] Opening in READ_ONLY mode: ${DUCKDB_PATH}`);
+    const instance = await DuckDBInstance.create(DUCKDB_PATH, {
+      access_mode: 'READ_ONLY',
+    });
+    dbInstance = instance;
+    dbInitializing = null;
+    return instance;
+  })();
+
+  return dbInitializing;
 }
 
 /**
@@ -95,8 +111,6 @@ function convertBigIntToNumber(obj: any): any {
  * Execute a query and return results as an array
  */
 export async function query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-  console.log(`[DuckDB Neo] Query: ${sql.slice(0, 120)}... params: ${JSON.stringify(params)}`);
-
   const instance = await getDb();
   const connection: DuckDBConnection = await instance.connect();
 
@@ -107,7 +121,6 @@ export async function query<T = any>(sql: string, params: any[] = []): Promise<T
       // Simple non-param query
       const result = await connection.runAndReadAll(sql);
       rows = await result.getRowObjects() as T[];
-      console.log(`[DuckDB Neo] Success – ${rows.length} rows (no params)`);
     } else {
       // Parameterized query
       const prepared: DuckDBPreparedStatement = await connection.prepare(sql);
@@ -137,7 +150,6 @@ export async function query<T = any>(sql: string, params: any[] = []): Promise<T
 
       const result = await prepared.run();
       rows = await result.getRowObjects() as T[];
-      console.log(`[DuckDB Neo] Success – ${rows.length} rows (with params)`);
     }
 
     // Convert BigInt values to numbers for JSON serialization

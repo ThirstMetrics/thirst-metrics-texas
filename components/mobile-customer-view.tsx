@@ -1,6 +1,7 @@
 /**
  * Mobile Customer View Component
- * Map-first experience for mobile devices with floating search and quick actions.
+ * Map-first experience for mobile devices with floating search, category filters,
+ * revenue-tiered pins, rich action sheet, and inline activity capture.
  */
 
 'use client';
@@ -10,23 +11,20 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { MapSkeleton } from './skeleton';
 import ErrorFallback from './error-fallback';
+import type { MapCustomer } from './customer-map';
 
-// Dynamically import CustomerMap to avoid SSR issues with Mapbox
+// Dynamically import heavy components to avoid SSR issues
 const CustomerMap = dynamic(() => import('./customer-map'), {
   ssr: false,
   loading: () => <MapSkeleton height={600} />,
 });
 
-// Customer with coordinates for map
-interface CustomerWithCoords {
-  id: string;
-  name: string;
-  permit_number: string;
-  trade_name?: string;
-  lat: number;
-  lng: number;
-  address?: string;
-}
+const MapActivitySheet = dynamic(() => import('./map-activity-sheet'), {
+  ssr: false,
+});
+
+// Category type
+type Category = 'all' | 'beer' | 'wine' | 'spirits';
 
 // Customer without coordinates (for list display)
 interface CustomerWithoutCoords {
@@ -36,11 +34,23 @@ interface CustomerWithoutCoords {
   address: string;
 }
 
+// Last activity data (lazy-loaded from API)
+interface LastActivity {
+  id: string;
+  activity_type: string;
+  activity_date: string;
+  notes: string | null;
+  outcome: string | null;
+  contact_name: string | null;
+  contact_cell_phone: string | null;
+}
+
 interface MobileCustomerViewProps {
   initialSearch?: string;
   initialCounty?: string;
   initialCity?: string;
   initialMetroplex?: string;
+  userId?: string;
 }
 
 // Brand colors
@@ -51,33 +61,69 @@ const brandColors = {
   accent: '#22d3e6',
 };
 
+// Tier color hex for badges
+const TIER_COLORS: Record<string, string> = {
+  green: '#22c55e',
+  lightgreen: '#86efac',
+  yellow: '#eab308',
+  orange: '#f97316',
+  red: '#ef4444',
+};
+
+const CATEGORIES: { value: Category; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'beer', label: 'Beer' },
+  { value: 'wine', label: 'Wine' },
+  { value: 'spirits', label: 'Spirits' },
+];
+
+// Format currency
+function formatCurrency(amount: number): string {
+  if (amount >= 1000000) return `$${(amount / 1000000).toFixed(1)}M`;
+  if (amount >= 1000) return `$${(amount / 1000).toFixed(1)}K`;
+  return `$${Math.round(amount).toLocaleString()}`;
+}
+
 export default function MobileCustomerView({
   initialSearch = '',
   initialCounty = '',
   initialCity = '',
   initialMetroplex = '',
+  userId,
 }: MobileCustomerViewProps) {
   const router = useRouter();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Filters
   const [search, setSearch] = useState(initialSearch);
   const [county, setCounty] = useState(initialCounty);
   const [city, setCity] = useState(initialCity);
   const [metroplex, setMetroplex] = useState(initialMetroplex);
+  const [category, setCategory] = useState<Category>('all');
   const [showFilters, setShowFilters] = useState(false);
 
-  const [mapCustomers, setMapCustomers] = useState<CustomerWithCoords[]>([]);
+  // Data
+  const [mapCustomers, setMapCustomers] = useState<MapCustomer[]>([]);
   const [nonGeocodedCustomers, setNonGeocodedCustomers] = useState<CustomerWithoutCoords[]>([]);
   const [nonGeocodedCount, setNonGeocodedCount] = useState(0);
   const [showNonGeocoded, setShowNonGeocoded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Filter options
   const [counties, setCounties] = useState<{ county_code: string; county_name: string }[]>([]);
   const [metroplexes, setMetroplexes] = useState<{ metroplex: string }[]>([]);
 
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerWithCoords | null>(null);
+  // Action sheet state
+  const [selectedCustomer, setSelectedCustomer] = useState<MapCustomer | null>(null);
   const [showActionSheet, setShowActionSheet] = useState(false);
+  const [lastActivity, setLastActivity] = useState<LastActivity | null>(null);
+  const [loadingActivity, setLoadingActivity] = useState(false);
+
+  // Activity capture sheet
+  const [showActivitySheet, setShowActivitySheet] = useState(false);
+  const [activityPermit, setActivityPermit] = useState<string>('');
+  const [activityCustomerName, setActivityCustomerName] = useState<string>('');
 
   // Viewport height tracking for full-screen map
   const [viewportHeight, setViewportHeight] = useState(
@@ -85,9 +131,7 @@ export default function MobileCustomerView({
   );
 
   useEffect(() => {
-    const handleResize = () => {
-      setViewportHeight(window.innerHeight);
-    };
+    const handleResize = () => setViewportHeight(window.innerHeight);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -115,7 +159,7 @@ export default function MobileCustomerView({
     fetchFilters();
   }, []);
 
-  // Load customers with coordinates
+  // Load customers with coordinates + revenue + tier colors
   const loadCustomers = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -125,6 +169,7 @@ export default function MobileCustomerView({
       if (county) params.set('county', county);
       if (city) params.set('city', city);
       if (metroplex) params.set('metroplex', metroplex);
+      params.set('category', category);
       params.set('limit', '500');
 
       const response = await fetch(`/api/customers/coordinates?${params.toString()}`);
@@ -144,18 +189,40 @@ export default function MobileCustomerView({
     } finally {
       setLoading(false);
     }
-  }, [search, county, city, metroplex]);
+  }, [search, county, city, metroplex, category]);
 
   useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
 
-  // Handle customer marker click - show action sheet
-  const handleCustomerClick = (customerId: string) => {
-    const customer = mapCustomers.find((c) => c.id === customerId);
-    if (customer) {
-      setSelectedCustomer(customer);
-      setShowActionSheet(true);
+  // Handle pin tap - show rich action sheet
+  const handlePinTap = useCallback(async (customer: MapCustomer) => {
+    setSelectedCustomer(customer);
+    setShowActionSheet(true);
+    setLastActivity(null);
+    setLoadingActivity(true);
+
+    // Lazy-fetch last activity
+    try {
+      const res = await fetch(`/api/customers/${encodeURIComponent(customer.permit_number)}/last-activity`);
+      if (res.ok) {
+        const data = await res.json();
+        setLastActivity(data.activity || null);
+      }
+    } catch (err) {
+      console.error('Error fetching last activity:', err);
+    } finally {
+      setLoadingActivity(false);
+    }
+  }, []);
+
+  // Open activity capture sheet
+  const openActivitySheet = () => {
+    if (selectedCustomer) {
+      setActivityPermit(selectedCustomer.permit_number);
+      setActivityCustomerName(selectedCustomer.name);
+      setShowActionSheet(false);
+      setShowActivitySheet(true);
     }
   };
 
@@ -166,17 +233,18 @@ export default function MobileCustomerView({
     }
   };
 
-  // Navigate to log activity
-  const goToLogActivity = () => {
-    if (selectedCustomer) {
-      router.push(`/customers/${selectedCustomer.permit_number}?action=log`);
-    }
-  };
-
   // Close action sheet
   const closeActionSheet = () => {
     setShowActionSheet(false);
     setSelectedCustomer(null);
+    setLastActivity(null);
+  };
+
+  // Handle activity success
+  const handleActivitySuccess = () => {
+    setShowActivitySheet(false);
+    // Could show a toast here, for now just reload map data
+    loadCustomers();
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -231,6 +299,23 @@ export default function MobileCustomerView({
           </button>
         </form>
 
+        {/* Category Filter Buttons */}
+        <div style={styles.categoryRow}>
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.value}
+              type="button"
+              onClick={() => setCategory(cat.value)}
+              style={{
+                ...styles.categoryPill,
+                ...(category === cat.value ? styles.categoryPillActive : {}),
+              }}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
         {/* Expandable Filters */}
         {showFilters && (
           <div style={styles.filtersPanel}>
@@ -278,7 +363,7 @@ export default function MobileCustomerView({
       {!loading && (mapCustomers.length > 0 || nonGeocodedCount > 0) && (
         <div style={styles.resultsBadge}>
           {mapCustomers.length} on map
-          {nonGeocodedCount > 0 && ` • ${nonGeocodedCount} without location`}
+          {nonGeocodedCount > 0 && ` · ${nonGeocodedCount} without location`}
         </div>
       )}
 
@@ -316,8 +401,8 @@ export default function MobileCustomerView({
           <CustomerMap
             customers={mapCustomers}
             height={`${showNonGeocoded ? viewportHeight - 260 : viewportHeight - 60}px`}
-            showPopups={true}
-            onCustomerClick={handleCustomerClick}
+            showPopups={false}
+            onPinTap={handlePinTap}
           />
         )}
       </div>
@@ -356,28 +441,104 @@ export default function MobileCustomerView({
         </div>
       )}
 
-      {/* Action Sheet Overlay */}
+      {/* Enhanced Action Sheet (Rich Popup on Pin Tap) */}
       {showActionSheet && selectedCustomer && (
         <>
           <div style={styles.actionSheetOverlay} onClick={closeActionSheet} />
           <div style={styles.actionSheet}>
             <div style={styles.actionSheetHandle} />
             <div style={styles.actionSheetContent}>
-              <h3 style={styles.actionSheetTitle}>
-                {selectedCustomer.name || selectedCustomer.trade_name || 'Unknown'}
-              </h3>
+              {/* Customer name + tier badge */}
+              <div style={styles.actionSheetHeader}>
+                <h3 style={styles.actionSheetTitle}>
+                  {selectedCustomer.name || selectedCustomer.trade_name || 'Unknown'}
+                </h3>
+                {selectedCustomer.tier_color && (
+                  <span style={{
+                    ...styles.tierBadge,
+                    backgroundColor: TIER_COLORS[selectedCustomer.tier_color] || '#94a3b8',
+                  }}>
+                    {selectedCustomer.tier_label || selectedCustomer.tier_color}
+                  </span>
+                )}
+              </div>
               {selectedCustomer.address && (
                 <p style={styles.actionSheetAddress}>{selectedCustomer.address}</p>
               )}
               <p style={styles.actionSheetPermit}>
                 Permit: {selectedCustomer.permit_number}
               </p>
+
+              {/* Revenue breakdown */}
+              <div style={styles.revenueRow}>
+                <div style={styles.revenueItem}>
+                  <span style={styles.revenueLabel}>Wine</span>
+                  <span style={styles.revenueValue}>
+                    {formatCurrency(selectedCustomer.wine_revenue || 0)}
+                  </span>
+                </div>
+                <div style={styles.revenueItem}>
+                  <span style={styles.revenueLabel}>Beer</span>
+                  <span style={styles.revenueValue}>
+                    {formatCurrency(selectedCustomer.beer_revenue || 0)}
+                  </span>
+                </div>
+                <div style={styles.revenueItem}>
+                  <span style={styles.revenueLabel}>Spirits</span>
+                  <span style={styles.revenueValue}>
+                    {formatCurrency(selectedCustomer.liquor_revenue || 0)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Last activity (lazy-loaded) */}
+              <div style={styles.activitySection}>
+                {loadingActivity ? (
+                  <p style={styles.activityLoading}>Loading activity...</p>
+                ) : lastActivity ? (
+                  <>
+                    <div style={styles.activityHeader}>
+                      <span style={styles.activityType}>
+                        {lastActivity.activity_type === 'visit' ? '🏢' :
+                         lastActivity.activity_type === 'call' ? '📞' :
+                         lastActivity.activity_type === 'email' ? '✉️' : '📝'}
+                        {' '}Last {lastActivity.activity_type}
+                      </span>
+                      <span style={styles.activityDate}>{lastActivity.activity_date}</span>
+                    </div>
+                    {lastActivity.contact_name && (
+                      <div style={styles.contactInfo}>
+                        <span>👤 {lastActivity.contact_name}</span>
+                        {lastActivity.contact_cell_phone && (
+                          <a
+                            href={`tel:${lastActivity.contact_cell_phone}`}
+                            style={styles.phoneLink}
+                          >
+                            📱 {lastActivity.contact_cell_phone}
+                          </a>
+                        )}
+                      </div>
+                    )}
+                    {lastActivity.notes && (
+                      <p style={styles.activityNotes}>
+                        "{lastActivity.notes.length > 120
+                          ? lastActivity.notes.substring(0, 120) + '...'
+                          : lastActivity.notes}"
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p style={styles.noActivity}>No previous activities recorded</p>
+                )}
+              </div>
+
+              {/* Action buttons */}
               <div style={styles.actionSheetButtons}>
                 <button
-                  onClick={goToLogActivity}
+                  onClick={openActivitySheet}
                   style={styles.actionButtonPrimary}
                 >
-                  📝 Log Activity
+                  📝 Record Activity
                 </button>
                 <button
                   onClick={goToCustomerDetail}
@@ -392,6 +553,17 @@ export default function MobileCustomerView({
             </div>
           </div>
         </>
+      )}
+
+      {/* Activity Capture Sheet */}
+      {showActivitySheet && userId && activityPermit && (
+        <MapActivitySheet
+          permitNumber={activityPermit}
+          customerName={activityCustomerName}
+          userId={userId}
+          onSuccess={handleActivitySuccess}
+          onCancel={() => setShowActivitySheet(false)}
+        />
       )}
     </div>
   );
@@ -410,7 +582,7 @@ const styles: Record<string, React.CSSProperties> = {
     left: 0,
     right: 0,
     zIndex: 100,
-    padding: '12px',
+    padding: '12px 12px 0',
     background: 'linear-gradient(to bottom, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.8) 100%)',
   },
   searchForm: {
@@ -477,6 +649,32 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: brandColors.primary,
     borderRadius: '50%',
   },
+  // Category filter pills
+  categoryRow: {
+    display: 'flex',
+    gap: '6px',
+    marginTop: '10px',
+    paddingBottom: '10px',
+  },
+  categoryPill: {
+    flex: 1,
+    padding: '8px 4px',
+    border: 'none',
+    borderRadius: '20px',
+    backgroundColor: 'white',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+    fontSize: '13px',
+    fontWeight: '500',
+    color: '#64748b',
+    cursor: 'pointer',
+    textAlign: 'center' as const,
+  },
+  categoryPillActive: {
+    backgroundColor: brandColors.primary,
+    color: 'white',
+    fontWeight: '600',
+    boxShadow: '0 2px 6px rgba(13, 115, 119, 0.3)',
+  },
   filtersPanel: {
     marginTop: '8px',
     padding: '12px',
@@ -512,7 +710,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   resultsBadge: {
     position: 'absolute',
-    top: '80px',
+    top: '116px',
     left: '12px',
     zIndex: 99,
     padding: '6px 12px',
@@ -543,10 +741,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '40px',
     textAlign: 'center',
   },
-  emptyIcon: {
-    fontSize: '48px',
-    marginBottom: '16px',
-  },
+  emptyIcon: { fontSize: '48px', marginBottom: '16px' },
   emptyTitle: {
     fontSize: '18px',
     fontWeight: '600',
@@ -568,7 +763,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '500',
     cursor: 'pointer',
   },
-  // Action Sheet styles
+  // Enhanced Action Sheet
   actionSheetOverlay: {
     position: 'fixed',
     top: 0,
@@ -583,12 +778,13 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 0,
     left: 0,
     right: 0,
+    maxHeight: '70vh',
+    overflowY: 'auto' as const,
     backgroundColor: 'white',
     borderTopLeftRadius: '20px',
     borderTopRightRadius: '20px',
     zIndex: 201,
     paddingBottom: 'env(safe-area-inset-bottom, 20px)',
-    animation: 'slideUp 0.3s ease-out',
   },
   actionSheetHandle: {
     width: '40px',
@@ -600,22 +796,121 @@ const styles: Record<string, React.CSSProperties> = {
   actionSheetContent: {
     padding: '0 20px 20px',
   },
+  actionSheetHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '8px',
+  },
   actionSheetTitle: {
     fontSize: '18px',
     fontWeight: '600',
     color: '#1e293b',
     margin: '0 0 4px 0',
+    flex: 1,
+  },
+  tierBadge: {
+    padding: '3px 10px',
+    borderRadius: '12px',
+    fontSize: '11px',
+    fontWeight: '700',
+    color: 'white',
+    whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
   },
   actionSheetAddress: {
     fontSize: '14px',
     color: '#64748b',
-    margin: '0 0 4px 0',
+    margin: '0 0 2px 0',
   },
   actionSheetPermit: {
     fontSize: '13px',
     color: '#94a3b8',
-    margin: '0 0 16px 0',
+    margin: '0 0 12px 0',
   },
+  // Revenue row
+  revenueRow: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '12px',
+  },
+  revenueItem: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderRadius: '8px',
+    padding: '10px',
+    textAlign: 'center' as const,
+  },
+  revenueLabel: {
+    display: 'block',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: '#94a3b8',
+    marginBottom: '2px',
+    textTransform: 'uppercase' as const,
+  },
+  revenueValue: {
+    display: 'block',
+    fontSize: '15px',
+    fontWeight: '700',
+    color: brandColors.primaryDark,
+  },
+  // Activity section
+  activitySection: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '8px',
+    padding: '12px',
+    marginBottom: '14px',
+  },
+  activityLoading: {
+    fontSize: '13px',
+    color: '#94a3b8',
+    margin: 0,
+    textAlign: 'center' as const,
+  },
+  activityHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '6px',
+  },
+  activityType: {
+    fontSize: '13px',
+    fontWeight: '600',
+    color: brandColors.primaryDark,
+  },
+  activityDate: {
+    fontSize: '12px',
+    color: '#94a3b8',
+  },
+  contactInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    fontSize: '13px',
+    color: '#475569',
+    marginBottom: '6px',
+    flexWrap: 'wrap' as const,
+  },
+  phoneLink: {
+    color: brandColors.primary,
+    textDecoration: 'none',
+    fontWeight: '500',
+  },
+  activityNotes: {
+    fontSize: '13px',
+    color: '#64748b',
+    margin: 0,
+    fontStyle: 'italic' as const,
+    lineHeight: 1.4,
+  },
+  noActivity: {
+    fontSize: '13px',
+    color: '#94a3b8',
+    margin: 0,
+    textAlign: 'center' as const,
+  },
+  // Action buttons
   actionSheetButtons: {
     display: 'flex',
     gap: '12px',
@@ -654,7 +949,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '500',
     cursor: 'pointer',
   },
-  // Non-geocoded customers panel styles
+  // Non-geocoded customers panel
   nonGeocodedPanel: {
     position: 'absolute',
     bottom: 0,

@@ -25,21 +25,6 @@ export async function GET(request: Request) {
     const limit = topN || 50;
     const offset = topN ? 0 : (page - 1) * 50;
     
-    console.log('[API] Fetching customers with filters:', {
-      search,
-      county,
-      city,
-      minRevenue,
-      monthsBack,
-      sortBy,
-      sortOrder,
-      sortByRevenue,
-      topN,
-      page,
-      limit,
-      offset,
-    });
-    
     const [customers, totalCount] = await Promise.all([
       getCustomers({
         search,
@@ -64,8 +49,6 @@ export async function GET(request: Request) {
         monthsBack,
       }),
     ]);
-    
-    console.log('[API] Found customers:', customers.length, 'Total:', totalCount);
     
     return NextResponse.json({
       customers,

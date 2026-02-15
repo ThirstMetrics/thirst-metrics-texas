@@ -47,8 +47,6 @@ export async function POST(request: Request) {
     const fileName = `${permitNumber}_${timestamp}_${random}.${ext}`;
     const filePath = `activities/${fileName}`;
 
-    console.log('[Photos API] Uploading:', { filePath, size: file.size, type: file.type });
-
     // Convert File to ArrayBuffer for upload
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
@@ -74,8 +72,6 @@ export async function POST(request: Request) {
     const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
     const photoUrl = urlData.publicUrl;
 
-    console.log('[Photos API] Photo URL:', photoUrl);
-
     // Insert database record (service role bypasses RLS)
     const { data: photoData, error: insertError } = await supabase
       .from('activity_photos')
@@ -99,8 +95,6 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
-
-    console.log('[Photos API] Photo record created:', photoData.id);
 
     // Trigger server-side OCR processing (non-blocking)
     if (photoData.id) {
@@ -136,6 +130,8 @@ async function triggerOCR(photoUrl: string, activityPhotoId: string): Promise<vo
   try {
     // Use internal API call (same server)
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    console.log(`[Photos API] Triggering OCR for photo ${activityPhotoId} at ${baseUrl}/api/ocr`);
+    console.log(`[Photos API] Photo URL: ${photoUrl}`);
     const response = await fetch(`${baseUrl}/api/ocr`, {
       method: 'POST',
       headers: {
@@ -148,17 +144,13 @@ async function triggerOCR(photoUrl: string, activityPhotoId: string): Promise<vo
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      console.error('[Photos API] OCR API error:', error);
+      const errBody = await response.text();
+      console.error(`[Photos API] OCR API returned ${response.status}: ${errBody}`);
     } else {
-      const result = await response.json();
-      console.log('[Photos API] OCR completed:', {
-        success: result.success,
-        textLength: result.correctedText?.length || 0,
-        termsFound: result.beverageTerms?.length || 0,
-      });
+      const ocrResult = await response.json();
+      console.log(`[Photos API] OCR completed: success=${ocrResult.success}, text length=${ocrResult.correctedText?.length || 0}`);
     }
-  } catch (err) {
-    console.error('[Photos API] OCR network error:', err);
+  } catch (err: any) {
+    console.error('[Photos API] OCR network error:', err.message);
   }
 }

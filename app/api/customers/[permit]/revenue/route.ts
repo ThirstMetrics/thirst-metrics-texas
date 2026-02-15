@@ -15,11 +15,7 @@ export async function GET(
     const months = parseInt(searchParams.get('months') || '12', 10);
     const permitNumber = decodeURIComponent(params.permit);
 
-    console.log('[Revenue API] Fetching revenue for permit:', permitNumber, 'months:', months);
-
     const data = await getCustomerMonthlyRevenue(permitNumber, months);
-
-    console.log('[Revenue API] Returning', data.length, 'months of data');
 
     return NextResponse.json(data);
   } catch (error) {

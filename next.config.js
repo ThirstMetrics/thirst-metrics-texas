@@ -5,7 +5,8 @@ const nextConfig = {
     serverComponentsExternalPackages: [
       '@duckdb/node-api',
       '@duckdb/node-bindings',
-      // keep any others if lingering
+      'tesseract.js',
+      'tesseract.js-core',
     ],
   },
 

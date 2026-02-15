@@ -124,18 +124,9 @@ async function triggerServerOCR(photoUrl: string, activityPhotoId: string): Prom
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      console.error('[triggerServerOCR] API error:', error);
-    } else {
-      const result = await response.json();
-      console.log('[triggerServerOCR] OCR completed:', {
-        success: result.success,
-        textLength: result.correctedText?.length || 0,
-        termsFound: result.beverageTerms?.length || 0,
-      });
+      // OCR API returned an error - non-critical
     }
   } catch (err) {
-    console.error('[triggerServerOCR] Network error:', err);
     throw err;
   }
 }
