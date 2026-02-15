@@ -1,121 +1,46 @@
 /**
  * Login Page
  * Email/password authentication with Supabase
+ * Session is automatically stored in cookies by @supabase/ssr browser client
  */
 
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get('redirect') || '/dashboard';
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Debug: Check Supabase client initialization
-  useEffect(() => {
-    console.log('[LOGIN] Component mounted');
-    console.log('[LOGIN] Supabase client:', supabase);
-    console.log('[LOGIN] Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
-    
-    // Check current session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      console.log('[LOGIN] Current session:', session);
-      console.log('[LOGIN] Session error:', error);
-    });
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    console.log('[LOGIN] Starting login process');
-    console.log('[LOGIN] Email:', email);
-    console.log('[LOGIN] Redirect to:', redirectTo);
-
     try {
-      console.log('[LOGIN] Calling supabase.auth.signInWithPassword...');
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      console.log('[LOGIN] Sign in response received');
-      console.log('[LOGIN] Error:', signInError);
-      console.log('[LOGIN] Data:', data);
-      console.log('[LOGIN] User:', data?.user);
-      console.log('[LOGIN] Session:', data?.session);
-
       if (signInError) {
-        console.log('[LOGIN] Sign in error detected:', signInError.message);
         setError(signInError.message);
         setLoading(false);
         return;
       }
 
       if (data.user && data.session) {
-        console.log('[LOGIN] User authenticated successfully');
-        console.log('[LOGIN] User ID:', data.user.id);
-        console.log('[LOGIN] User email:', data.user.email);
-        console.log('[LOGIN] Session exists:', !!data.session);
-        console.log('[LOGIN] Session token:', data.session.access_token ? 'Present' : 'Missing');
-        
-        // Verify session is set in Supabase client
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        console.log('[LOGIN] Current session after login:', currentSession ? 'Present' : 'Missing');
-        
-        if (!currentSession) {
-          console.error('[LOGIN] Session not set after login!');
-          setError('Session not established. Please try again.');
-          setLoading(false);
-          return;
-        }
-        
-        // Sync session to cookies for middleware access
-        console.log('[LOGIN] Syncing session to cookies...');
-        try {
-          const syncResponse = await fetch('/api/auth/sync', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              access_token: currentSession.access_token,
-              refresh_token: currentSession.refresh_token,
-            }),
-          });
-          
-          if (!syncResponse.ok) {
-            console.error('[LOGIN] Failed to sync session to cookies');
-          } else {
-            console.log('[LOGIN] Session synced to cookies successfully');
-          }
-        } catch (syncError) {
-          console.error('[LOGIN] Error syncing session:', syncError);
-        }
-        
-        // Set loading to false before redirect
-        setLoading(false);
-        
-        // Wait a moment to ensure cookies are set
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
-        console.log('[LOGIN] Redirecting to:', redirectTo);
-        
-        // Use window.location for full page reload to ensure cookies are sent with request
-        // This ensures middleware can read the session cookies
+        // @supabase/ssr browser client automatically stores session in cookies
+        // Full page reload ensures middleware reads the new cookies
         window.location.href = redirectTo;
-        console.log('[LOGIN] window.location.href set to:', redirectTo);
       } else {
-        console.log('[LOGIN] No user in response data');
         setError('Authentication failed. Please try again.');
         setLoading(false);
       }

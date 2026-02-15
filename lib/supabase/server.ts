@@ -1,8 +1,9 @@
 /**
- * Supabase Client for Server Components
- * Use this in Server Components, Server Actions, and API routes
+ * Supabase Client for Server Components & API Routes
+ * Uses @supabase/ssr for proper cookie-based session management
  */
 
+import { createServerClient as createSSRServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
@@ -17,34 +18,28 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 /**
  * Get Supabase client for server-side operations
- * This creates a client with the user's session from cookies
- * Note: setItem and removeItem are no-ops in server components/API routes
- * Cookies are managed by the client-side Supabase instance
+ * Reads session from cookies set by the browser client
  */
 export async function createServerClient() {
   const cookieStore = await cookies();
-  
-  // Create a client that uses cookies for session management
-  // In server components/API routes, we can only read cookies, not write them
-  const client = createClient(supabaseUrl!, supabaseAnonKey!, {
-    auth: {
-      storage: {
-        getItem: (key: string) => {
-          const cookie = cookieStore.get(key);
-          return cookie?.value ?? null;
-        },
-        setItem: () => {
-          // No-op in server context - cookies are set by client
-          // This prevents the "cookies can only be modified in a Server Action" error
-        },
-        removeItem: () => {
-          // No-op in server context - cookies are removed by client
-        },
+
+  return createSSRServerClient(supabaseUrl!, supabaseAnonKey!, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          );
+        } catch {
+          // setAll is called from Server Components where cookies can't be set.
+          // This can be safely ignored if middleware is refreshing sessions.
+        }
       },
     },
   });
-  
-  return client;
 }
 
 /**
@@ -53,13 +48,13 @@ export async function createServerClient() {
  */
 export function createServiceClient() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  
+
   if (!serviceRoleKey) {
     throw new Error(
       'Missing SUPABASE_SERVICE_ROLE_KEY. This is required for service role operations.'
     );
   }
-  
+
   return createClient(supabaseUrl!, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
