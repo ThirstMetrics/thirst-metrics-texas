@@ -283,7 +283,7 @@ async function main() {
 
   try {
     // 1. Fetch all distinct customer addresses
-    console.log('⏳ Fetching customer addresses from mixed_beverage_receipts...');
+    console.log('⏳ Fetching customer addresses (enriched first, by revenue)...');
 
     const addrResult = await conn.runAndReadAll(`
       SELECT
@@ -291,14 +291,17 @@ async function main() {
         MAX(m.location_address) as location_address,
         MAX(m.location_city) as location_city,
         MAX(m.location_state) as location_state,
-        MAX(m.location_zip) as location_zip
+        MAX(m.location_zip) as location_zip,
+        CASE WHEN e.tabc_permit_number IS NOT NULL THEN 1 ELSE 0 END as is_enriched,
+        CAST(COALESCE(SUM(m.total_receipts), 0) AS DOUBLE) as total_revenue
       FROM mixed_beverage_receipts m
       LEFT JOIN location_coordinates c ON m.tabc_permit_number = c.tabc_permit_number
+      LEFT JOIN location_enrichments e ON m.tabc_permit_number = e.tabc_permit_number
       WHERE m.location_address IS NOT NULL
         AND m.location_city IS NOT NULL
         AND c.tabc_permit_number IS NULL
-      GROUP BY m.tabc_permit_number
-      ORDER BY m.tabc_permit_number
+      GROUP BY m.tabc_permit_number, e.tabc_permit_number
+      ORDER BY is_enriched DESC, total_revenue DESC
     `);
 
     const allRows = addrResult.getRowObjects() as any[];
