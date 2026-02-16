@@ -124,6 +124,40 @@ export default function DashboardClient() {
 
   if (!data) return null;
 
+  // Compute activity type breakdown from recent activities
+  const activityTypeCounts: Record<string, number> = {};
+  const outcomeCounts: Record<string, number> = {};
+  data.recentActivities.forEach((a) => {
+    activityTypeCounts[a.activity_type] = (activityTypeCounts[a.activity_type] || 0) + 1;
+    if (a.outcome) {
+      outcomeCounts[a.outcome] = (outcomeCounts[a.outcome] || 0) + 1;
+    }
+  });
+
+  const activityTypeLabels: Record<string, string> = {
+    visit: 'Visits',
+    call: 'Calls',
+    email: 'Emails',
+    note: 'Notes',
+  };
+
+  const outcomeLabels: Record<string, string> = {
+    positive: 'Positive',
+    neutral: 'Neutral',
+    negative: 'Negative',
+    no_contact: 'No Contact',
+  };
+
+  const outcomeColors: Record<string, string> = {
+    positive: '#10b981',
+    neutral: '#6b7280',
+    negative: '#ef4444',
+    no_contact: '#f59e0b',
+  };
+
+  const totalActivities = data.recentActivities.length;
+  const totalOutcomes = Object.values(outcomeCounts).reduce((s, v) => s + v, 0);
+
   return (
     <div style={styles.container}>
       {/* Summary Cards */}
@@ -169,6 +203,66 @@ export default function DashboardClient() {
         )}
       </div>
 
+      {/* This Week's Performance */}
+      {totalActivities > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>This Week's Performance</h2>
+          <div style={styles.performanceGrid}>
+            {/* Activities by Type */}
+            <div style={styles.performanceColumn}>
+              <div style={styles.performanceSubtitle}>Activities by Type</div>
+              {Object.entries(activityTypeLabels).map(([type, label]) => {
+                const count = activityTypeCounts[type] || 0;
+                const pct = totalActivities > 0 ? (count / totalActivities) * 100 : 0;
+                return (
+                  <div key={type} style={styles.statBarRow}>
+                    <div style={styles.statBarLabel}>
+                      <span>{label}</span>
+                      <span style={styles.statBarCount}>{count}</span>
+                    </div>
+                    <div style={styles.statBarTrack}>
+                      <div
+                        style={{
+                          ...styles.statBarFill,
+                          width: `${Math.max(pct, 2)}%`,
+                          background: '#0d7377',
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Outcomes Breakdown */}
+            <div style={styles.performanceColumn}>
+              <div style={styles.performanceSubtitle}>Outcomes</div>
+              {Object.entries(outcomeLabels).map(([outcome, label]) => {
+                const count = outcomeCounts[outcome] || 0;
+                const pct = totalOutcomes > 0 ? (count / totalOutcomes) * 100 : 0;
+                return (
+                  <div key={outcome} style={styles.statBarRow}>
+                    <div style={styles.statBarLabel}>
+                      <span>{label}</span>
+                      <span style={styles.statBarCount}>{count}</span>
+                    </div>
+                    <div style={styles.statBarTrack}>
+                      <div
+                        style={{
+                          ...styles.statBarFill,
+                          width: `${Math.max(pct, 2)}%`,
+                          background: outcomeColors[outcome] || '#9ca3af',
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Quick Actions</h2>
@@ -190,7 +284,12 @@ export default function DashboardClient() {
 
       {/* Recent Activity Feed */}
       <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Recent Activity</h2>
+        <div style={styles.sectionHeader}>
+          <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>Recent Activity</h2>
+          <Link href="/activities" style={styles.viewAllLink}>
+            View All
+          </Link>
+        </div>
         {data.recentActivities.length === 0 ? (
           <div style={styles.emptyState}>
             <p>No recent activities</p>
@@ -201,38 +300,44 @@ export default function DashboardClient() {
         ) : (
           <div style={styles.activityList}>
             {data.recentActivities.map((activity) => (
-              <div key={activity.id} style={styles.activityItem}>
-                <div style={styles.activityIcon}>
-                  {getActivityIcon(activity.activity_type)}
-                </div>
-                <div style={styles.activityContent}>
-                  <div style={styles.activityHeader}>
-                    <span style={styles.activityType}>
-                      {activity.activity_type.charAt(0).toUpperCase() + activity.activity_type.slice(1)}
-                    </span>
-                    {activity.outcome && (
-                      <span style={{
-                        ...styles.activityOutcome,
-                        backgroundColor: getOutcomeColor(activity.outcome)
-                      }}>
-                        {activity.outcome.replace('_', ' ')}
+              <Link
+                key={activity.id}
+                href={`/customers/${activity.tabc_permit_number}`}
+                style={styles.activityItemLink}
+              >
+                <div style={styles.activityItem}>
+                  <div style={styles.activityIcon}>
+                    {getActivityIcon(activity.activity_type)}
+                  </div>
+                  <div style={styles.activityContent}>
+                    <div style={styles.activityHeader}>
+                      <span style={styles.activityType}>
+                        {activity.activity_type.charAt(0).toUpperCase() + activity.activity_type.slice(1)}
                       </span>
-                    )}
-                  </div>
-                  <div style={styles.activityPermit}>
-                    Permit: {activity.tabc_permit_number}
-                  </div>
-                  {activity.notes && (
-                    <div style={styles.activityNotes}>
-                      {activity.notes.substring(0, 100)}
-                      {activity.notes.length > 100 ? '...' : ''}
+                      {activity.outcome && (
+                        <span style={{
+                          ...styles.activityOutcome,
+                          backgroundColor: getOutcomeColor(activity.outcome)
+                        }}>
+                          {activity.outcome.replace('_', ' ')}
+                        </span>
+                      )}
                     </div>
-                  )}
-                  <div style={styles.activityDate}>
-                    {formatDate(activity.activity_date)}
+                    <div style={styles.activityPermit}>
+                      Permit: {activity.tabc_permit_number}
+                    </div>
+                    {activity.notes && (
+                      <div style={styles.activityNotes}>
+                        {activity.notes.substring(0, 100)}
+                        {activity.notes.length > 100 ? '...' : ''}
+                      </div>
+                    )}
+                    <div style={styles.activityDate}>
+                      {formatDate(activity.activity_date)}
+                    </div>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}
@@ -244,21 +349,27 @@ export default function DashboardClient() {
           <h2 style={styles.sectionTitle}>Upcoming Follow-ups</h2>
           <div style={styles.followupList}>
             {data.upcomingFollowups.map((followup) => (
-              <div key={followup.id} style={styles.followupItem}>
-                <div style={styles.followupDate}>
-                  {formatDate(followup.next_followup_date || '')}
-                </div>
-                <div style={styles.followupContent}>
-                  <div style={styles.followupPermit}>
-                    {followup.tabc_permit_number}
+              <Link
+                key={followup.id}
+                href={`/customers/${followup.tabc_permit_number}`}
+                style={styles.followupItemLink}
+              >
+                <div style={styles.followupItem}>
+                  <div style={styles.followupDate}>
+                    {formatDate(followup.next_followup_date || '')}
                   </div>
-                  {followup.contact_name && (
-                    <div style={styles.followupContact}>
-                      Contact: {followup.contact_name}
+                  <div style={styles.followupContent}>
+                    <div style={styles.followupPermit}>
+                      {followup.tabc_permit_number}
                     </div>
-                  )}
+                    {followup.contact_name && (
+                      <div style={styles.followupContact}>
+                        Contact: {followup.contact_name}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -285,7 +396,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '40px',
     height: '40px',
     border: '4px solid #f3f3f3',
-    borderTop: '4px solid #667eea',
+    borderTop: '4px solid #0d7377',
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
     marginBottom: '16px',
@@ -302,7 +413,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   retryButton: {
     padding: '8px 16px',
-    background: '#667eea',
+    background: '#0d7377',
     color: 'white',
     border: 'none',
     borderRadius: '6px',
@@ -353,11 +464,23 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '20px',
     boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
   },
+  sectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
+  },
   sectionTitle: {
     fontSize: '18px',
     fontWeight: '600',
     color: '#333',
     marginBottom: '16px',
+  },
+  viewAllLink: {
+    fontSize: '14px',
+    color: '#0d7377',
+    textDecoration: 'none',
+    fontWeight: '500',
   },
   actionsGrid: {
     display: 'grid',
@@ -370,7 +493,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '8px',
     padding: '16px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    background: 'linear-gradient(135deg, #0d7377 0%, #042829 100%)',
     color: 'white',
     borderRadius: '8px',
     textDecoration: 'none',
@@ -386,7 +509,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#666',
   },
   emptyStateLink: {
-    color: '#667eea',
+    color: '#0d7377',
     textDecoration: 'underline',
   },
   activityList: {
@@ -394,12 +517,19 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '12px',
   },
+  activityItemLink: {
+    textDecoration: 'none',
+    color: 'inherit',
+    display: 'block',
+  },
   activityItem: {
     display: 'flex',
     gap: '12px',
     padding: '12px',
     background: '#f9fafb',
     borderRadius: '8px',
+    cursor: 'pointer',
+    transition: 'background 0.15s',
   },
   activityIcon: {
     fontSize: '24px',
@@ -443,6 +573,11 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     gap: '8px',
   },
+  followupItemLink: {
+    textDecoration: 'none',
+    color: 'inherit',
+    display: 'block',
+  },
   followupItem: {
     display: 'flex',
     gap: '16px',
@@ -450,6 +585,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#fef3c7',
     borderRadius: '8px',
     alignItems: 'center',
+    cursor: 'pointer',
+    transition: 'background 0.15s',
   },
   followupDate: {
     fontWeight: '600',
@@ -466,5 +603,47 @@ const styles: Record<string, React.CSSProperties> = {
   followupContact: {
     fontSize: '13px',
     color: '#666',
+  },
+  performanceGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: '24px',
+  },
+  performanceColumn: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  performanceSubtitle: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: '4px',
+  },
+  statBarRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  statBarLabel: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: '13px',
+    color: '#555',
+  },
+  statBarCount: {
+    fontWeight: '600',
+    color: '#333',
+  },
+  statBarTrack: {
+    height: '8px',
+    background: '#e6f5f5',
+    borderRadius: '4px',
+    overflow: 'hidden',
+  },
+  statBarFill: {
+    height: '100%',
+    borderRadius: '4px',
+    transition: 'width 0.3s ease',
   },
 };

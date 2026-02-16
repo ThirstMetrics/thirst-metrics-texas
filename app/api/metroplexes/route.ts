@@ -5,9 +5,16 @@
 
 import { NextResponse } from 'next/server';
 import { getMetroplexList } from '@/lib/data/beverage-receipts';
+import { createServerClient } from '@/lib/supabase/server';
 
 export async function GET() {
   try {
+    const supabase = await createServerClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const metroplexes = await getMetroplexList();
     return NextResponse.json({ metroplexes });
   } catch (error: any) {

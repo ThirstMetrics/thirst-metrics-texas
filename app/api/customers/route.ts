@@ -5,9 +5,16 @@
 
 import { NextResponse } from 'next/server';
 import { getCustomers, getCustomerCount } from '@/lib/data/beverage-receipts';
+import { createServerClient } from '@/lib/supabase/server';
 
 export async function GET(request: Request) {
   try {
+    const supabase = await createServerClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     
     const page = parseInt(searchParams.get('page') || '1');

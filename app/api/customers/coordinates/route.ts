@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/duckdb/connection';
+import { createServerClient } from '@/lib/supabase/server';
 
 // Revenue tier color type
 type TierColor = 'green' | 'lightgreen' | 'yellow' | 'orange' | 'red';
@@ -141,6 +142,12 @@ export async function GET(
   request: Request
 ): Promise<NextResponse<CoordinatesResponse | CoordinatesErrorResponse>> {
   try {
+    const supabase = await createServerClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
 
     // Parse query parameters
