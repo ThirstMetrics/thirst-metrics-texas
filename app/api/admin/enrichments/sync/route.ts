@@ -112,7 +112,17 @@ export async function POST() {
       `export NVM_DIR="$HOME/.nvm"`,
       `[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`,
       `cd ${APP_PATH}`,
+      // Stop Next.js to release DuckDB file lock (DuckDB only allows one writer)
+      `echo "Stopping Next.js server to release DuckDB lock..."`,
+      `pkill -f "next start" 2>/dev/null`,
+      `sleep 3`,
       `npx tsx scripts/sync-enrichments-to-duckdb.ts 2>&1 | tee ${logFile}`,
+      // Restart Next.js after sync completes
+      `echo "Restarting Next.js server..."`,
+      `cd ${APP_PATH}`,
+      `nohup node node_modules/.bin/next start -p 3000 > /tmp/next-server.log 2>&1 &`,
+      `sleep 2`,
+      `echo "Next.js server restarted (PID $!)"`,
     ].join(' ; ');
 
     const screenCommand = isLocal
