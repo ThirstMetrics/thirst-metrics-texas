@@ -112,6 +112,16 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   const [error, setError] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
 
+  // My Accounts (saved/starred accounts)
+  const [savedAccounts, setSavedAccounts] = useState<Set<string>>(new Set());
+  const [myAccountsFilter, setMyAccountsFilter] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('thirst-metrics-my-accounts-filter') === 'true';
+    }
+    return false;
+  });
+  const [savingPermit, setSavingPermit] = useState<string | null>(null);
+
   const loadCustomers = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -174,6 +184,74 @@ export default function CustomerListClient(props: CustomerListClientProps) {
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [lastScrollY]);
+
+  // Fetch saved accounts on mount
+  useEffect(() => {
+    const fetchSavedAccounts = async () => {
+      try {
+        const response = await fetch('/api/accounts/saved');
+        if (response.ok) {
+          const data = await response.json();
+          setSavedAccounts(new Set(data.savedAccounts || []));
+        }
+      } catch (err) {
+        console.error('Error fetching saved accounts:', err);
+      }
+    };
+    fetchSavedAccounts();
+  }, []);
+
+  // Persist My Accounts filter state to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('thirst-metrics-my-accounts-filter', myAccountsFilter.toString());
+    }
+  }, [myAccountsFilter]);
+
+  // Toggle saved account with optimistic update
+  const toggleSavedAccount = useCallback(async (permitNumber: string) => {
+    if (savingPermit) return; // Prevent double-clicks
+    setSavingPermit(permitNumber);
+
+    const wasSaved = savedAccounts.has(permitNumber);
+
+    // Optimistic update
+    setSavedAccounts(prev => {
+      const next = new Set(prev);
+      if (wasSaved) {
+        next.delete(permitNumber);
+      } else {
+        next.add(permitNumber);
+      }
+      return next;
+    });
+
+    try {
+      const response = await fetch('/api/accounts/saved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permitNumber }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to toggle saved account');
+      }
+    } catch (err) {
+      console.error('Error toggling saved account:', err);
+      // Revert optimistic update on failure
+      setSavedAccounts(prev => {
+        const next = new Set(prev);
+        if (wasSaved) {
+          next.add(permitNumber);
+        } else {
+          next.delete(permitNumber);
+        }
+        return next;
+      });
+    } finally {
+      setSavingPermit(null);
+    }
+  }, [savedAccounts, savingPermit]);
 
   // Fetch counties and metroplexes on mount
   useEffect(() => {
@@ -281,6 +359,11 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   
   const totalPages = Math.ceil(totalCount / props.limit);
 
+  // Filter customers by saved accounts when My Accounts filter is active
+  const displayedCustomers = myAccountsFilter
+    ? customers.filter(c => savedAccounts.has(c.tabc_permit_number))
+    : customers;
+
   // Render mobile-first map view on mobile devices
   if (isMobile) {
     return (
@@ -381,7 +464,10 @@ export default function CustomerListClient(props: CustomerListClientProps) {
       
       {/* Results count */}
       <div style={styles.resultsInfo}>
-        Showing {customers.length} of {totalCount} customers
+        {myAccountsFilter
+          ? `Showing ${displayedCustomers.length} saved accounts (filtered from ${customers.length})`
+          : `Showing ${customers.length} of ${totalCount} customers`
+        }
       </div>
 
       {/* Time Period Selector + Sort + Top N */}
@@ -490,6 +576,23 @@ export default function CustomerListClient(props: CustomerListClientProps) {
             <span style={styles.viewModeIcon}>📍</span> Map
           </button>
         </div>
+
+        {/* My Accounts Toggle */}
+        <button
+          onClick={() => setMyAccountsFilter(prev => !prev)}
+          style={{
+            ...styles.toggleButton,
+            background: myAccountsFilter ? '#fef3c7' : 'white',
+            borderColor: myAccountsFilter ? '#f59e0b' : '#e2e8f0',
+            color: myAccountsFilter ? '#92400e' : '#475569',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontWeight: myAccountsFilter ? '600' : '500',
+          }}
+        >
+          {myAccountsFilter ? '\u2B50' : '\u2606'} My Accounts ({savedAccounts.size})
+        </button>
 
         {/* Column toggles - only show in list view and hide on mobile */}
         {viewMode === 'list' && !isMobile && (
@@ -653,6 +756,10 @@ export default function CustomerListClient(props: CustomerListClientProps) {
         />
       ) : customers.length === 0 ? (
         <div style={styles.empty}>No customers found</div>
+      ) : displayedCustomers.length === 0 && myAccountsFilter ? (
+        <div style={styles.empty}>
+          No saved accounts on this page. Star some accounts or turn off the My Accounts filter.
+        </div>
       ) : (
         <>
           <div style={{
@@ -662,6 +769,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
           <table style={styles.table}>
             <thead>
               <tr>
+                <th style={{ ...styles.th, ...styles.thStar }}></th>
                 {topN && (
                   <th style={{ ...styles.th, ...styles.thRank }}>Rank</th>
                 )}
@@ -715,8 +823,26 @@ export default function CustomerListClient(props: CustomerListClientProps) {
               </tr>
             </thead>
             <tbody>
-              {customers.map((customer, index) => (
+              {displayedCustomers.map((customer, index) => (
                 <tr key={customer.tabc_permit_number} style={styles.tr}>
+                  <td style={{ ...styles.td, ...styles.tdStar }}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        toggleSavedAccount(customer.tabc_permit_number);
+                      }}
+                      style={{
+                        ...styles.starButton,
+                        color: savedAccounts.has(customer.tabc_permit_number) ? '#f59e0b' : '#cbd5e1',
+                        opacity: savingPermit === customer.tabc_permit_number ? 0.5 : 1,
+                      }}
+                      title={savedAccounts.has(customer.tabc_permit_number) ? 'Remove from My Accounts' : 'Add to My Accounts'}
+                      disabled={savingPermit === customer.tabc_permit_number}
+                    >
+                      {savedAccounts.has(customer.tabc_permit_number) ? '\u2B50' : '\u2606'}
+                    </button>
+                  </td>
                   {topN && (
                     <td style={{ ...styles.td, ...styles.tdRank }}>
                       {index + 1 + ((page - 1) * props.limit)}
@@ -1137,6 +1263,17 @@ const styles = {
   tdLocation: {},
   tdLastReceipt: {},
   tdActions: { textAlign: 'center' as const },
+  thStar: { width: 44, textAlign: 'center' as const, padding: '14px 4px' },
+  tdStar: { width: 44, textAlign: 'center' as const, padding: '12px 4px' },
+  starButton: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '20px',
+    padding: '2px 4px',
+    lineHeight: 1,
+    transition: 'transform 0.15s ease, color 0.15s ease',
+  },
   thRank: { width: 60, textAlign: 'center' as const },
   tdRank: {
     width: 60,

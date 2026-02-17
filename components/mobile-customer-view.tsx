@@ -125,6 +125,10 @@ export default function MobileCustomerView({
   const [activityPermit, setActivityPermit] = useState<string>('');
   const [activityCustomerName, setActivityCustomerName] = useState<string>('');
 
+  // Saved accounts
+  const [savedAccounts, setSavedAccounts] = useState<Set<string>>(new Set());
+  const [savingPermit, setSavingPermit] = useState<string | null>(null);
+
   // Viewport height tracking for full-screen map
   const [viewportHeight, setViewportHeight] = useState(
     typeof window !== 'undefined' ? window.innerHeight : 700
@@ -135,6 +139,67 @@ export default function MobileCustomerView({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Fetch saved accounts on mount
+  useEffect(() => {
+    const fetchSavedAccounts = async () => {
+      try {
+        const response = await fetch('/api/accounts/saved');
+        if (response.ok) {
+          const data = await response.json();
+          setSavedAccounts(new Set(data.savedAccounts || []));
+        }
+      } catch (err) {
+        console.error('Error fetching saved accounts:', err);
+      }
+    };
+    fetchSavedAccounts();
+  }, []);
+
+  // Toggle saved account with optimistic update
+  const toggleSavedAccount = useCallback(async (permitNumber: string) => {
+    if (savingPermit) return;
+    setSavingPermit(permitNumber);
+
+    const wasSaved = savedAccounts.has(permitNumber);
+
+    // Optimistic update
+    setSavedAccounts(prev => {
+      const next = new Set(prev);
+      if (wasSaved) {
+        next.delete(permitNumber);
+      } else {
+        next.add(permitNumber);
+      }
+      return next;
+    });
+
+    try {
+      const response = await fetch('/api/accounts/saved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permitNumber }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to toggle saved account');
+      }
+    } catch (err) {
+      console.error('Error toggling saved account:', err);
+      // Revert optimistic update on failure
+      setSavedAccounts(prev => {
+        const next = new Set(prev);
+        if (wasSaved) {
+          next.add(permitNumber);
+        } else {
+          next.delete(permitNumber);
+        }
+        return next;
+      });
+    } finally {
+      setSavingPermit(null);
+    }
+  }, [savedAccounts, savingPermit]);
 
   // Load filter options
   useEffect(() => {
@@ -422,14 +487,36 @@ export default function MobileCustomerView({
           {showNonGeocoded && (
             <div style={styles.nonGeocodedList}>
               {nonGeocodedCustomers.map((customer) => (
-                <button
+                <div
                   key={customer.id}
-                  onClick={() => router.push(`/customers/${customer.permit_number}`)}
-                  style={styles.nonGeocodedItem}
+                  style={{ ...styles.nonGeocodedItem, display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
-                  <div style={styles.nonGeocodedName}>{customer.name}</div>
-                  <div style={styles.nonGeocodedAddress}>{customer.address}</div>
-                </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSavedAccount(customer.permit_number);
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '18px',
+                      padding: '0',
+                      lineHeight: 1,
+                      color: savedAccounts.has(customer.permit_number) ? '#f59e0b' : '#cbd5e1',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {savedAccounts.has(customer.permit_number) ? '\u2B50' : '\u2606'}
+                  </button>
+                  <button
+                    onClick={() => router.push(`/customers/${customer.permit_number}`)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' as const, flex: 1, padding: 0 }}
+                  >
+                    <div style={styles.nonGeocodedName}>{customer.name}</div>
+                    <div style={styles.nonGeocodedAddress}>{customer.address}</div>
+                  </button>
+                </div>
               ))}
               {nonGeocodedCount > nonGeocodedCustomers.length && (
                 <div style={styles.nonGeocodedMore}>
@@ -448,8 +535,29 @@ export default function MobileCustomerView({
           <div style={styles.actionSheet}>
             <div style={styles.actionSheetHandle} />
             <div style={styles.actionSheetContent}>
-              {/* Customer name + tier badge */}
+              {/* Customer name + star + tier badge */}
               <div style={styles.actionSheetHeader}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleSavedAccount(selectedCustomer.permit_number);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '24px',
+                    padding: '0 6px 0 0',
+                    lineHeight: 1,
+                    color: savedAccounts.has(selectedCustomer.permit_number) ? '#f59e0b' : '#cbd5e1',
+                    opacity: savingPermit === selectedCustomer.permit_number ? 0.5 : 1,
+                    flexShrink: 0,
+                  }}
+                  title={savedAccounts.has(selectedCustomer.permit_number) ? 'Remove from My Accounts' : 'Add to My Accounts'}
+                  disabled={savingPermit === selectedCustomer.permit_number}
+                >
+                  {savedAccounts.has(selectedCustomer.permit_number) ? '\u2B50' : '\u2606'}
+                </button>
                 <h3 style={styles.actionSheetTitle}>
                   {selectedCustomer.name || selectedCustomer.trade_name || 'Unknown'}
                 </h3>

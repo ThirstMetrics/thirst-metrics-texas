@@ -44,6 +44,7 @@ interface SalesActivity {
 type ActivityTypeFilter = 'all' | 'visit' | 'call' | 'email' | 'note';
 type OutcomeFilter = 'all' | 'positive' | 'neutral' | 'negative' | 'no_contact';
 type DateRangeFilter = '7' | '30' | '90' | 'all';
+type ViewMode = 'list' | 'calendar';
 
 // ============================================
 // Constants
@@ -78,6 +79,13 @@ const ACTIVITY_LABELS: Record<string, string> = {
   call: 'Call',
   email: 'Email',
   note: 'Note',
+};
+
+const ACTIVITY_DOT_COLORS: Record<string, string> = {
+  visit: '#0d7377',
+  call: '#22c55e',
+  email: '#6366f1',
+  note: '#f59e0b',
 };
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -116,6 +124,32 @@ function isWithinDays(dateStr: string, days: number): boolean {
   return date >= cutoff;
 }
 
+function getMonthLabel(year: number, month: number): string {
+  return new Date(year, month, 1).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function getFirstDayOfWeek(year: number, month: number): number {
+  return new Date(year, month, 1).getDay();
+}
+
+function toDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getTodayKey(): string {
+  return toDateKey(new Date());
+}
+
 // ============================================
 // Component
 // ============================================
@@ -137,6 +171,15 @@ export default function ActivitiesClient() {
 
   // Pagination state
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+
+  // Calendar state
+  const now = new Date();
+  const [calendarYear, setCalendarYear] = useState(now.getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(now.getMonth());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   // Expanded card state
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -215,10 +258,57 @@ export default function ActivitiesClient() {
 
   const hasMore = visibleCount < filteredActivities.length;
 
+  // Group filtered activities by date for calendar view
+  const activitiesByDate = useMemo(() => {
+    const map = new Map<string, SalesActivity[]>();
+    for (const a of filteredActivities) {
+      const key = a.activity_date; // already YYYY-MM-DD from the API
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key)!.push(a);
+    }
+    return map;
+  }, [filteredActivities]);
+
+  // Activities for the selected calendar day
+  const selectedDayActivities = useMemo(() => {
+    if (!selectedDay) return [];
+    return activitiesByDate.get(selectedDay) || [];
+  }, [selectedDay, activitiesByDate]);
+
   // Reset pagination when filters change
   useEffect(() => {
     setVisibleCount(ITEMS_PER_PAGE);
   }, [typeFilter, outcomeFilter, dateRange, searchQuery]);
+
+  // Calendar navigation
+  const goToPrevMonth = useCallback(() => {
+    setSelectedDay(null);
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear((y) => y - 1);
+    } else {
+      setCalendarMonth((m) => m - 1);
+    }
+  }, [calendarMonth]);
+
+  const goToNextMonth = useCallback(() => {
+    setSelectedDay(null);
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear((y) => y + 1);
+    } else {
+      setCalendarMonth((m) => m + 1);
+    }
+  }, [calendarMonth]);
+
+  const goToToday = useCallback(() => {
+    const today = new Date();
+    setCalendarYear(today.getFullYear());
+    setCalendarMonth(today.getMonth());
+    setSelectedDay(null);
+  }, []);
 
   // ----------------------------------------
   // Render: Loading
@@ -349,11 +439,372 @@ export default function ActivitiesClient() {
   );
 
   // ----------------------------------------
+  // Render: Activity Card (reusable for both list and calendar day panel)
+  // ----------------------------------------
+
+  const renderActivityCard = (activity: SalesActivity) => {
+    const isExpanded = expandedId === activity.id;
+    const photoCount = activity.activity_photos?.length || 0;
+
+    return (
+      <div key={activity.id} style={styles.card}>
+        {/* Card Header - always visible, clickable to expand */}
+        <div
+          onClick={() => setExpandedId(isExpanded ? null : activity.id)}
+          style={styles.cardHeader}
+        >
+          <div style={styles.cardHeaderLeft}>
+            <span style={styles.typeIcon}>
+              {ACTIVITY_ICONS[activity.activity_type] || '\u{1F4CB}'}
+            </span>
+            <div style={styles.cardHeaderInfo}>
+              <div style={styles.cardTopRow}>
+                <span style={styles.typeLabel}>
+                  {ACTIVITY_LABELS[activity.activity_type] || activity.activity_type}
+                </span>
+                {activity.outcome && (
+                  <span
+                    style={{
+                      ...styles.outcomeBadge,
+                      backgroundColor: OUTCOME_COLORS[activity.outcome] || '#9ca3af',
+                    }}
+                  >
+                    {OUTCOME_LABELS[activity.outcome] || activity.outcome}
+                  </span>
+                )}
+                {photoCount > 0 && (
+                  <span style={styles.photoBadge}>
+                    {'\u{1F4F7}'} {photoCount}
+                  </span>
+                )}
+              </div>
+              <div style={styles.cardDate}>{formatDate(activity.activity_date)}</div>
+            </div>
+          </div>
+          <span
+            style={{
+              ...styles.expandArrow,
+              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)',
+            }}
+          >
+            &#9662;
+          </span>
+        </div>
+
+        {/* Card Summary - always visible */}
+        <div style={styles.cardBody}>
+          <Link
+            href={`/customers/${activity.tabc_permit_number}`}
+            style={styles.permitLink}
+          >
+            Permit: {activity.tabc_permit_number}
+          </Link>
+          {activity.contact_name && (
+            <div style={styles.contactName}>
+              Contact: {activity.contact_name}
+            </div>
+          )}
+          {activity.notes && !isExpanded && (
+            <div style={styles.notesPreview}>
+              {activity.notes.length > 120
+                ? activity.notes.substring(0, 120) + '...'
+                : activity.notes}
+            </div>
+          )}
+        </div>
+
+        {/* Expanded Details */}
+        {isExpanded && (
+          <div style={styles.expandedSection}>
+            {activity.notes && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>Notes</div>
+                <div style={styles.detailValue}>{activity.notes}</div>
+              </div>
+            )}
+            {activity.conversation_summary && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>Conversation Summary</div>
+                <div style={styles.detailValue}>{activity.conversation_summary}</div>
+              </div>
+            )}
+            {activity.product_interest && activity.product_interest.length > 0 && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>Product Interest</div>
+                <div style={styles.tagsRow}>
+                  {activity.product_interest.map((tag) => (
+                    <span key={tag} style={styles.productTag}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {activity.current_products_carried && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>Current Products Carried</div>
+                <div style={styles.detailValue}>
+                  {activity.current_products_carried}
+                </div>
+              </div>
+            )}
+            {(activity.contact_name || activity.contact_cell_phone || activity.contact_email) && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>Contact Details</div>
+                <div style={styles.detailValue}>
+                  {activity.contact_name && <div>{activity.contact_name}</div>}
+                  {activity.contact_cell_phone && <div>{activity.contact_cell_phone}</div>}
+                  {activity.contact_email && <div>{activity.contact_email}</div>}
+                </div>
+              </div>
+            )}
+            {activity.next_followup_date && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>Next Follow-up</div>
+                <div style={styles.detailValue}>
+                  {formatDate(activity.next_followup_date)}
+                </div>
+              </div>
+            )}
+            {activity.gps_latitude != null && activity.gps_longitude != null && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>GPS Location</div>
+                <div style={styles.detailValue}>
+                  {activity.gps_latitude.toFixed(6)}, {activity.gps_longitude.toFixed(6)}
+                </div>
+              </div>
+            )}
+            {photoCount > 0 && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>
+                  Photos ({photoCount})
+                </div>
+                <div style={styles.photoGrid}>
+                  {activity.activity_photos.map((photo) => (
+                    <div key={photo.id} style={styles.photoThumb}>
+                      <img
+                        src={photo.photo_url}
+                        alt={photo.photo_type || 'Activity photo'}
+                        style={styles.photoImg}
+                      />
+                      {photo.photo_type && (
+                        <div style={styles.photoType}>{photo.photo_type.replace('_', ' ')}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={styles.detailMeta}>
+              Created: {formatDateTime(activity.created_at)}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ----------------------------------------
+  // Render: Calendar View
+  // ----------------------------------------
+
+  const renderCalendar = () => {
+    const daysInMonth = getDaysInMonth(calendarYear, calendarMonth);
+    const firstDayOfWeek = getFirstDayOfWeek(calendarYear, calendarMonth);
+    const todayKey = getTodayKey();
+    const weekDays = isMobile
+      ? ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+      : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Build calendar cells: leading blanks + day numbers
+    const cells: (number | null)[] = [];
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      cells.push(null);
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push(d);
+    }
+
+    return (
+      <div style={styles.calendarContainer}>
+        {/* Month navigation */}
+        <div style={styles.calendarNav}>
+          <button onClick={goToPrevMonth} style={styles.calendarNavButton}>
+            {'\u2190'}
+          </button>
+          <div style={styles.calendarNavCenter}>
+            <span style={styles.calendarMonthLabel}>
+              {getMonthLabel(calendarYear, calendarMonth)}
+            </span>
+            <button onClick={goToToday} style={styles.calendarTodayButton}>
+              Today
+            </button>
+          </div>
+          <button onClick={goToNextMonth} style={styles.calendarNavButton}>
+            {'\u2192'}
+          </button>
+        </div>
+
+        {/* Legend */}
+        <div style={styles.calendarLegend}>
+          {(['visit', 'call', 'email', 'note'] as const).map((type) => (
+            <div key={type} style={styles.legendItem}>
+              <span
+                style={{
+                  ...styles.legendDot,
+                  backgroundColor: ACTIVITY_DOT_COLORS[type],
+                }}
+              />
+              <span style={styles.legendLabel}>
+                {ACTIVITY_LABELS[type]}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Weekday headers */}
+        <div style={styles.calendarGrid}>
+          {weekDays.map((day, i) => (
+            <div key={`hdr-${i}`} style={styles.calendarWeekdayHeader}>
+              {day}
+            </div>
+          ))}
+
+          {/* Day cells */}
+          {cells.map((dayNum, idx) => {
+            if (dayNum === null) {
+              return <div key={`blank-${idx}`} style={styles.calendarCellBlank} />;
+            }
+
+            const m = String(calendarMonth + 1).padStart(2, '0');
+            const d = String(dayNum).padStart(2, '0');
+            const dateKey = `${calendarYear}-${m}-${d}`;
+            const dayActivities = activitiesByDate.get(dateKey) || [];
+            const isToday = dateKey === todayKey;
+            const isSelected = dateKey === selectedDay;
+            const hasActivities = dayActivities.length > 0;
+
+            // Collect unique activity types for dots
+            const uniqueTypes = Array.from(
+              new Set(dayActivities.map((a) => a.activity_type))
+            );
+
+            return (
+              <div
+                key={dateKey}
+                onClick={() => {
+                  if (hasActivities) {
+                    setSelectedDay(isSelected ? null : dateKey);
+                    setExpandedId(null);
+                  }
+                }}
+                style={{
+                  ...styles.calendarCell,
+                  ...(isToday ? styles.calendarCellToday : {}),
+                  ...(isSelected ? styles.calendarCellSelected : {}),
+                  ...(hasActivities ? styles.calendarCellClickable : {}),
+                }}
+              >
+                <div style={{
+                  ...styles.calendarDayNumber,
+                  ...(isSelected ? { color: 'white' } : {}),
+                }}>
+                  {dayNum}
+                  {dayActivities.length >= 2 && (
+                    <span style={{
+                      ...styles.calendarCountBadge,
+                      ...(isSelected ? { background: 'white', color: '#0d7377' } : {}),
+                    }}>
+                      {dayActivities.length}
+                    </span>
+                  )}
+                </div>
+                {uniqueTypes.length > 0 && (
+                  <div style={styles.calendarDots}>
+                    {uniqueTypes.map((type) => (
+                      <span
+                        key={type}
+                        style={{
+                          ...styles.calendarDot,
+                          backgroundColor: ACTIVITY_DOT_COLORS[type] || '#94a3b8',
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Selected day activities panel */}
+        {selectedDay && selectedDayActivities.length > 0 && (
+          <div style={styles.calendarDayPanel}>
+            <div style={styles.calendarDayPanelHeader}>
+              <span style={styles.calendarDayPanelTitle}>
+                {formatDate(selectedDay)} &mdash; {selectedDayActivities.length}{' '}
+                {selectedDayActivities.length === 1 ? 'activity' : 'activities'}
+              </span>
+              <button
+                onClick={() => { setSelectedDay(null); setExpandedId(null); }}
+                style={styles.calendarDayPanelClose}
+              >
+                {'\u2715'}
+              </button>
+            </div>
+            <div style={styles.cardList}>
+              {selectedDayActivities.map((activity) => renderActivityCard(activity))}
+            </div>
+          </div>
+        )}
+
+        {selectedDay && selectedDayActivities.length === 0 && (
+          <div style={styles.calendarDayPanel}>
+            <div style={styles.calendarDayPanelHeader}>
+              <span style={styles.calendarDayPanelTitle}>
+                {formatDate(selectedDay)} &mdash; No activities
+              </span>
+              <button
+                onClick={() => setSelectedDay(null)}
+                style={styles.calendarDayPanelClose}
+              >
+                {'\u2715'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ----------------------------------------
   // Render: Main
   // ----------------------------------------
 
   return (
     <div style={styles.container}>
+      {/* View mode tabs */}
+      <div style={styles.tabBar}>
+        <button
+          onClick={() => { setViewMode('list'); setSelectedDay(null); setExpandedId(null); }}
+          style={{
+            ...styles.tabButton,
+            ...(viewMode === 'list' ? styles.tabButtonActive : {}),
+          }}
+        >
+          {'\u{1F4CB}'} List
+        </button>
+        <button
+          onClick={() => { setViewMode('calendar'); setExpandedId(null); }}
+          style={{
+            ...styles.tabButton,
+            ...(viewMode === 'calendar' ? styles.tabButtonActive : {}),
+          }}
+        >
+          {'\u{1F4C5}'} Calendar
+        </button>
+      </div>
+
       {/* Count banner */}
       <div style={styles.countBanner}>
         <span style={styles.countText}>
@@ -386,223 +837,53 @@ export default function ActivitiesClient() {
         <div style={styles.filtersSectionDesktop}>{filtersContent}</div>
       )}
 
-      {/* Activity Cards */}
-      {visibleActivities.length === 0 ? (
-        <div style={styles.emptyState}>
-          <div style={styles.emptyIcon}>{'\u{1F4CB}'}</div>
-          <p style={styles.emptyTitle}>No activities found</p>
-          <p style={styles.emptySubtext}>
-            {activities.length === 0
-              ? 'You haven\'t logged any activities yet. Visit a customer page to create your first one.'
-              : 'Try adjusting your filters to see more results.'}
-          </p>
-          {activities.length > 0 && (
-            <button
-              onClick={() => {
-                setTypeFilter('all');
-                setOutcomeFilter('all');
-                setDateRange('all');
-                setSearchQuery('');
-              }}
-              style={styles.clearFiltersButton}
-            >
-              Clear all filters
-            </button>
-          )}
-        </div>
-      ) : (
-        <div style={styles.cardList}>
-          {visibleActivities.map((activity) => {
-            const isExpanded = expandedId === activity.id;
-            const photoCount = activity.activity_photos?.length || 0;
-
-            return (
-              <div key={activity.id} style={styles.card}>
-                {/* Card Header - always visible, clickable to expand */}
-                <div
-                  onClick={() => setExpandedId(isExpanded ? null : activity.id)}
-                  style={styles.cardHeader}
+      {/* View content */}
+      {viewMode === 'list' ? (
+        <>
+          {/* Activity Cards */}
+          {visibleActivities.length === 0 ? (
+            <div style={styles.emptyState}>
+              <div style={styles.emptyIcon}>{'\u{1F4CB}'}</div>
+              <p style={styles.emptyTitle}>No activities found</p>
+              <p style={styles.emptySubtext}>
+                {activities.length === 0
+                  ? 'You haven\'t logged any activities yet. Visit a customer page to create your first one.'
+                  : 'Try adjusting your filters to see more results.'}
+              </p>
+              {activities.length > 0 && (
+                <button
+                  onClick={() => {
+                    setTypeFilter('all');
+                    setOutcomeFilter('all');
+                    setDateRange('all');
+                    setSearchQuery('');
+                  }}
+                  style={styles.clearFiltersButton}
                 >
-                  <div style={styles.cardHeaderLeft}>
-                    <span style={styles.typeIcon}>
-                      {ACTIVITY_ICONS[activity.activity_type] || '\u{1F4CB}'}
-                    </span>
-                    <div style={styles.cardHeaderInfo}>
-                      <div style={styles.cardTopRow}>
-                        <span style={styles.typeLabel}>
-                          {ACTIVITY_LABELS[activity.activity_type] || activity.activity_type}
-                        </span>
-                        {activity.outcome && (
-                          <span
-                            style={{
-                              ...styles.outcomeBadge,
-                              backgroundColor: OUTCOME_COLORS[activity.outcome] || '#9ca3af',
-                            }}
-                          >
-                            {OUTCOME_LABELS[activity.outcome] || activity.outcome}
-                          </span>
-                        )}
-                        {photoCount > 0 && (
-                          <span style={styles.photoBadge}>
-                            {'\u{1F4F7}'} {photoCount}
-                          </span>
-                        )}
-                      </div>
-                      <div style={styles.cardDate}>{formatDate(activity.activity_date)}</div>
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      ...styles.expandArrow,
-                      transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)',
-                    }}
-                  >
-                    &#9662;
-                  </span>
-                </div>
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={styles.cardList}>
+              {visibleActivities.map((activity) => renderActivityCard(activity))}
+            </div>
+          )}
 
-                {/* Card Summary - always visible */}
-                <div style={styles.cardBody}>
-                  <Link
-                    href={`/customers/${activity.tabc_permit_number}`}
-                    style={styles.permitLink}
-                  >
-                    Permit: {activity.tabc_permit_number}
-                  </Link>
-                  {activity.contact_name && (
-                    <div style={styles.contactName}>
-                      Contact: {activity.contact_name}
-                    </div>
-                  )}
-                  {activity.notes && !isExpanded && (
-                    <div style={styles.notesPreview}>
-                      {activity.notes.length > 120
-                        ? activity.notes.substring(0, 120) + '...'
-                        : activity.notes}
-                    </div>
-                  )}
-                </div>
-
-                {/* Expanded Details */}
-                {isExpanded && (
-                  <div style={styles.expandedSection}>
-                    {/* Full Notes */}
-                    {activity.notes && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>Notes</div>
-                        <div style={styles.detailValue}>{activity.notes}</div>
-                      </div>
-                    )}
-
-                    {/* Conversation Summary */}
-                    {activity.conversation_summary && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>Conversation Summary</div>
-                        <div style={styles.detailValue}>{activity.conversation_summary}</div>
-                      </div>
-                    )}
-
-                    {/* Product Interest */}
-                    {activity.product_interest && activity.product_interest.length > 0 && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>Product Interest</div>
-                        <div style={styles.tagsRow}>
-                          {activity.product_interest.map((tag) => (
-                            <span key={tag} style={styles.productTag}>
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Current Products */}
-                    {activity.current_products_carried && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>Current Products Carried</div>
-                        <div style={styles.detailValue}>
-                          {activity.current_products_carried}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Contact Details */}
-                    {(activity.contact_name || activity.contact_cell_phone || activity.contact_email) && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>Contact Details</div>
-                        <div style={styles.detailValue}>
-                          {activity.contact_name && <div>{activity.contact_name}</div>}
-                          {activity.contact_cell_phone && <div>{activity.contact_cell_phone}</div>}
-                          {activity.contact_email && <div>{activity.contact_email}</div>}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Follow-up Date */}
-                    {activity.next_followup_date && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>Next Follow-up</div>
-                        <div style={styles.detailValue}>
-                          {formatDate(activity.next_followup_date)}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* GPS Location */}
-                    {activity.gps_latitude != null && activity.gps_longitude != null && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>GPS Location</div>
-                        <div style={styles.detailValue}>
-                          {activity.gps_latitude.toFixed(6)}, {activity.gps_longitude.toFixed(6)}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Photos */}
-                    {photoCount > 0 && (
-                      <div style={styles.detailBlock}>
-                        <div style={styles.detailLabel}>
-                          Photos ({photoCount})
-                        </div>
-                        <div style={styles.photoGrid}>
-                          {activity.activity_photos.map((photo) => (
-                            <div key={photo.id} style={styles.photoThumb}>
-                              <img
-                                src={photo.photo_url}
-                                alt={photo.photo_type || 'Activity photo'}
-                                style={styles.photoImg}
-                              />
-                              {photo.photo_type && (
-                                <div style={styles.photoType}>{photo.photo_type.replace('_', ' ')}</div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Timestamp */}
-                    <div style={styles.detailMeta}>
-                      Created: {formatDateTime(activity.created_at)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Load More */}
-      {hasMore && (
-        <div style={styles.loadMoreContainer}>
-          <button
-            onClick={() => setVisibleCount((prev) => prev + ITEMS_PER_PAGE)}
-            style={styles.loadMoreButton}
-          >
-            Load more ({filteredActivities.length - visibleCount} remaining)
-          </button>
-        </div>
+          {/* Load More */}
+          {hasMore && (
+            <div style={styles.loadMoreContainer}>
+              <button
+                onClick={() => setVisibleCount((prev) => prev + ITEMS_PER_PAGE)}
+                style={styles.loadMoreButton}
+              >
+                Load more ({filteredActivities.length - visibleCount} remaining)
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        renderCalendar()
       )}
     </div>
   );
@@ -1008,5 +1289,206 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     fontWeight: '600',
     transition: 'all 0.15s',
+  },
+
+  // Tab bar (matches analytics page underline-style)
+  tabBar: {
+    display: 'flex',
+    gap: '0',
+    borderBottom: '2px solid #e2e8f0',
+    marginBottom: '0',
+    overflowX: 'auto',
+  },
+  tabButton: {
+    padding: '12px 20px',
+    background: 'none',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    marginBottom: '-2px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 600,
+    color: '#64748b',
+    whiteSpace: 'nowrap',
+    transition: 'color 0.15s, border-color 0.15s',
+  } as React.CSSProperties,
+  tabButtonActive: {
+    color: '#0d7377',
+    borderBottomColor: '#0d7377',
+  },
+
+  // Calendar
+  calendarContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+  } as React.CSSProperties,
+  calendarNav: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    background: 'white',
+    borderRadius: '12px',
+    padding: '12px 16px',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  },
+  calendarNavButton: {
+    background: 'none',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    padding: '8px 14px',
+    cursor: 'pointer',
+    fontSize: '16px',
+    color: '#334155',
+    fontWeight: 600,
+    lineHeight: '1',
+    transition: 'background 0.15s',
+  },
+  calendarNavCenter: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  calendarMonthLabel: {
+    fontSize: '18px',
+    fontWeight: 700,
+    color: '#1e293b',
+  },
+  calendarTodayButton: {
+    background: '#e6f5f5',
+    border: 'none',
+    borderRadius: '6px',
+    padding: '4px 12px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 600,
+    color: '#0d7377',
+  },
+  calendarLegend: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    justifyContent: 'center',
+    padding: '4px 0',
+  } as React.CSSProperties,
+  legendItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+  },
+  legendDot: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    display: 'inline-block',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  legendLabel: {
+    fontSize: '12px',
+    color: '#64748b',
+    fontWeight: 500,
+  },
+  calendarGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(7, 1fr)',
+    gap: '4px',
+    background: 'white',
+    borderRadius: '12px',
+    padding: '12px',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  },
+  calendarWeekdayHeader: {
+    textAlign: 'center',
+    fontSize: '12px',
+    fontWeight: 700,
+    color: '#64748b',
+    textTransform: 'uppercase',
+    padding: '8px 0',
+    letterSpacing: '0.5px',
+  } as React.CSSProperties,
+  calendarCellBlank: {
+    minHeight: '44px',
+  },
+  calendarCell: {
+    minHeight: '44px',
+    borderRadius: '8px',
+    padding: '6px 4px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '3px',
+    transition: 'background 0.15s',
+    position: 'relative',
+  } as React.CSSProperties,
+  calendarCellToday: {
+    backgroundColor: '#e6f5f5',
+  },
+  calendarCellSelected: {
+    backgroundColor: '#0d7377',
+    color: 'white',
+  },
+  calendarCellClickable: {
+    cursor: 'pointer',
+  },
+  calendarDayNumber: {
+    fontSize: '14px',
+    fontWeight: 600,
+    lineHeight: '1',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+  },
+  calendarCountBadge: {
+    fontSize: '9px',
+    fontWeight: 700,
+    background: '#0d7377',
+    color: 'white',
+    borderRadius: '8px',
+    padding: '1px 5px',
+    lineHeight: '1.3',
+    minWidth: '14px',
+    textAlign: 'center',
+  } as React.CSSProperties,
+  calendarDots: {
+    display: 'flex',
+    gap: '3px',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  } as React.CSSProperties,
+  calendarDot: {
+    width: '7px',
+    height: '7px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  calendarDayPanel: {
+    background: 'white',
+    borderRadius: '12px',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    overflow: 'hidden',
+  },
+  calendarDayPanelHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '14px 16px',
+    borderBottom: '1px solid #e2e8f0',
+    background: '#fafbfc',
+  },
+  calendarDayPanelTitle: {
+    fontSize: '15px',
+    fontWeight: 600,
+    color: '#1e293b',
+  },
+  calendarDayPanelClose: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '18px',
+    color: '#94a3b8',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    lineHeight: '1',
+    transition: 'color 0.15s',
   },
 };

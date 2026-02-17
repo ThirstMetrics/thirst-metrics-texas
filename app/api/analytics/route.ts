@@ -2,7 +2,14 @@
  * Analytics API Route
  * Returns aggregated analytics data from DuckDB for the analytics dashboard.
  *
- * GET /api/analytics?monthsBack=12
+ * GET /api/analytics?monthsBack=12&category=total&comparisonMode=yoy
+ *
+ * Query params:
+ *   monthsBack      - Number of months to look back (default: 12)
+ *   category        - Revenue category filter: total|beer|wine|liquor|cover_charge
+ *                     Affects metroplexBreakdown, countyBreakdown, topMovers, bottomMovers
+ *   comparisonMode  - Comparison mode: yoy|mom|90over90|3yr|5yr
+ *                     Overrides monthsBack and midDate calculation for movers
  *
  * Sections returned:
  *   kpis, revenueTrend, categoryMix, topMovers, bottomMovers,
@@ -138,10 +145,42 @@ export async function GET(request: Request) {
 
     // --- Params ---
     const { searchParams } = new URL(request.url);
-    const monthsBack = Math.max(1, parseInt(searchParams.get('monthsBack') || '12', 10));
+    let monthsBack = Math.max(1, parseInt(searchParams.get('monthsBack') || '12', 10));
+
+    // Category filter: total|beer|wine|liquor|cover_charge
+    const categoryParam = searchParams.get('category') || 'total';
+    const validCategories = ['total', 'beer', 'wine', 'liquor', 'cover_charge'];
+    const category = validCategories.includes(categoryParam) ? categoryParam : 'total';
+
+    // Map category to the DuckDB column name
+    const categoryColumnMap: Record<string, string> = {
+      total: 'total_receipts',
+      beer: 'beer_receipts',
+      wine: 'wine_receipts',
+      liquor: 'liquor_receipts',
+      cover_charge: 'cover_charge_receipts',
+    };
+    const revenueColumn = categoryColumnMap[category];
+
+    // Comparison mode: yoy|mom|90over90|3yr|5yr
+    const comparisonMode = searchParams.get('comparisonMode') || null;
 
     // Date boundaries
     const now = new Date();
+
+    // Override monthsBack based on comparison mode
+    if (comparisonMode === 'yoy') {
+      monthsBack = 24;
+    } else if (comparisonMode === 'mom') {
+      monthsBack = 2;
+    } else if (comparisonMode === '90over90') {
+      monthsBack = 15; // ~15 months to capture same quarter last year
+    } else if (comparisonMode === '3yr') {
+      monthsBack = 36;
+    } else if (comparisonMode === '5yr') {
+      monthsBack = 60;
+    }
+
     const startDate = new Date(now);
     startDate.setMonth(startDate.getMonth() - monthsBack);
     const startDateStr = startDate.toISOString().split('T')[0];
@@ -151,10 +190,24 @@ export async function GET(request: Request) {
     activeDate.setMonth(activeDate.getMonth() - 3);
     const activeDateStr = activeDate.toISOString().split('T')[0];
 
-    // For movers: split period in half
-    const halfMonths = Math.floor(monthsBack / 2);
-    const midDate = new Date(now);
-    midDate.setMonth(midDate.getMonth() - halfMonths);
+    // For movers: split point depends on comparison mode
+    let midDate: Date;
+    if (comparisonMode === 'yoy') {
+      midDate = new Date(now);
+      midDate.setMonth(midDate.getMonth() - 12);
+    } else if (comparisonMode === 'mom') {
+      midDate = new Date(now);
+      midDate.setMonth(midDate.getMonth() - 1);
+    } else if (comparisonMode === '90over90') {
+      // Compare current 90 days vs same 90 days last year
+      midDate = new Date(now);
+      midDate.setMonth(midDate.getMonth() - 12);
+    } else {
+      // Default: split period in half
+      const halfMonths = Math.floor(monthsBack / 2);
+      midDate = new Date(now);
+      midDate.setMonth(midDate.getMonth() - halfMonths);
+    }
     const midDateStr = midDate.toISOString().split('T')[0];
 
     // -----------------------------------------------------------------------
@@ -219,12 +272,12 @@ export async function GET(request: Request) {
         WHERE obligation_end_date >= '${startDateStr}'
       `, null),
 
-      // 4. Top movers (biggest revenue increases)
+      // 4. Top movers (biggest revenue increases) — filtered by category
       safeQuery<MoverRow[]>('TopMovers', `
         WITH current_period AS (
           SELECT
             tabc_permit_number,
-            CAST(COALESCE(SUM(total_receipts), 0) AS DOUBLE) AS revenue
+            CAST(COALESCE(SUM(${revenueColumn}), 0) AS DOUBLE) AS revenue
           FROM mixed_beverage_receipts
           WHERE obligation_end_date >= '${midDateStr}'
           GROUP BY tabc_permit_number
@@ -232,7 +285,7 @@ export async function GET(request: Request) {
         previous_period AS (
           SELECT
             tabc_permit_number,
-            CAST(COALESCE(SUM(total_receipts), 0) AS DOUBLE) AS revenue
+            CAST(COALESCE(SUM(${revenueColumn}), 0) AS DOUBLE) AS revenue
           FROM mixed_beverage_receipts
           WHERE obligation_end_date >= '${startDateStr}'
             AND obligation_end_date < '${midDateStr}'
@@ -260,12 +313,12 @@ export async function GET(request: Request) {
         LIMIT 10
       `, []),
 
-      // 5. Bottom movers (biggest revenue decreases)
+      // 5. Bottom movers (biggest revenue decreases) — filtered by category
       safeQuery<MoverRow[]>('BottomMovers', `
         WITH current_period AS (
           SELECT
             tabc_permit_number,
-            CAST(COALESCE(SUM(total_receipts), 0) AS DOUBLE) AS revenue
+            CAST(COALESCE(SUM(${revenueColumn}), 0) AS DOUBLE) AS revenue
           FROM mixed_beverage_receipts
           WHERE obligation_end_date >= '${midDateStr}'
           GROUP BY tabc_permit_number
@@ -273,7 +326,7 @@ export async function GET(request: Request) {
         previous_period AS (
           SELECT
             tabc_permit_number,
-            CAST(COALESCE(SUM(total_receipts), 0) AS DOUBLE) AS revenue
+            CAST(COALESCE(SUM(${revenueColumn}), 0) AS DOUBLE) AS revenue
           FROM mixed_beverage_receipts
           WHERE obligation_end_date >= '${startDateStr}'
             AND obligation_end_date < '${midDateStr}'
@@ -301,11 +354,11 @@ export async function GET(request: Request) {
         LIMIT 10
       `, []),
 
-      // 6. Metroplex breakdown (top 10)
+      // 6. Metroplex breakdown (top 10) — filtered by category
       safeQuery<MetroplexRow[]>('MetroplexBreakdown', `
         SELECT
           mp.metroplex                                                 AS metroplex,
-          CAST(COALESCE(SUM(m.total_receipts), 0) AS DOUBLE)          AS revenue,
+          CAST(COALESCE(SUM(m.${revenueColumn}), 0) AS DOUBLE)        AS revenue,
           CAST(COUNT(DISTINCT m.tabc_permit_number) AS DOUBLE)         AS "customerCount"
         FROM mixed_beverage_receipts m
         INNER JOIN metroplexes mp ON SUBSTR(m.location_zip, 1, 5) = mp.zip
@@ -315,11 +368,11 @@ export async function GET(request: Request) {
         LIMIT 10
       `, []),
 
-      // 7. County breakdown (top 15)
+      // 7. County breakdown (top 15) — filtered by category
       safeQuery<CountyRow[]>('CountyBreakdown', `
         SELECT
           co.county_name                                              AS county,
-          CAST(COALESCE(SUM(m.total_receipts), 0) AS DOUBLE)         AS revenue,
+          CAST(COALESCE(SUM(m.${revenueColumn}), 0) AS DOUBLE)       AS revenue,
           CAST(COUNT(DISTINCT m.tabc_permit_number) AS DOUBLE)        AS "customerCount"
         FROM mixed_beverage_receipts m
         INNER JOIN counties co ON m.location_county_code = co.county_code

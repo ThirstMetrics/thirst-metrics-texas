@@ -133,6 +133,8 @@ interface OcrSearchResponse {
 
 type TabKey = 'overview' | 'ownership' | 'ocr';
 type PeriodKey = '12' | '24' | '36' | 'all';
+type CategoryKey = 'total' | 'beer' | 'wine' | 'liquor' | 'cover_charge';
+type ComparisonMode = 'yoy' | 'mom' | '90over90' | '3yr' | '5yr';
 type SortField = 'group' | 'locationCount' | 'totalRevenue' | 'avgRevenuePerLocation';
 type SortDir = 'asc' | 'desc';
 
@@ -169,6 +171,22 @@ const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: '24', label: '24 mo' },
   { key: '36', label: '36 mo' },
   { key: 'all', label: 'All' },
+];
+
+const CATEGORIES: { key: CategoryKey; label: string; color: string }[] = [
+  { key: 'total', label: 'Total', color: '#0d7377' },
+  { key: 'beer', label: 'Beer', color: '#22c55e' },
+  { key: 'wine', label: 'Wine', color: '#6366f1' },
+  { key: 'liquor', label: 'Spirits', color: '#ec4899' },
+  { key: 'cover_charge', label: 'Cover Charge', color: '#f59e0b' },
+];
+
+const COMPARISONS: { key: ComparisonMode; label: string }[] = [
+  { key: 'yoy', label: 'YoY' },
+  { key: 'mom', label: 'MoM' },
+  { key: '90over90', label: '90/90' },
+  { key: '3yr', label: '3yr Trend' },
+  { key: '5yr', label: '5yr Trend' },
 ];
 
 const ACTIVITY_ICONS: Record<string, string> = {
@@ -321,9 +339,15 @@ export default function AnalyticsClient() {
 
   // Overview state
   const [period, setPeriod] = useState<PeriodKey>('12');
+  const [categoryFilter, setCategoryFilter] = useState<CategoryKey>('total');
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode | null>(null);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  // Industry segment Top N state
+  const [segmentTopN, setSegmentTopN] = useState(10);
+  const [showSegmentOther, setShowSegmentOther] = useState(false);
 
   // Ownership state
   const [ownershipSort, setOwnershipSort] = useState<SortField>('totalRevenue');
@@ -349,10 +373,17 @@ export default function AnalyticsClient() {
   // Fetch analytics data
   // ----------------------------------------
 
-  const fetchAnalytics = useCallback(async (periodKey: PeriodKey) => {
+  const fetchAnalytics = useCallback(async (
+    periodKey: PeriodKey,
+    cat: CategoryKey,
+    comparison: ComparisonMode | null,
+  ) => {
+    // Build cache key from all parameters
+    const cacheKey = `${periodKey}_${cat}_${comparison || 'none'}`;
+
     // Check cache first
-    if (cacheRef.current[periodKey]) {
-      setAnalyticsData(cacheRef.current[periodKey]);
+    if (cacheRef.current[cacheKey]) {
+      setAnalyticsData(cacheRef.current[cacheKey]);
       setAnalyticsLoading(false);
       setAnalyticsError(null);
       return;
@@ -362,8 +393,18 @@ export default function AnalyticsClient() {
     setAnalyticsError(null);
 
     try {
-      const monthsBack = periodKey === 'all' ? '' : periodKey;
-      const url = `/api/analytics${monthsBack ? `?monthsBack=${monthsBack}` : ''}`;
+      const params = new URLSearchParams();
+      if (periodKey !== 'all') {
+        params.set('monthsBack', periodKey);
+      }
+      if (cat !== 'total') {
+        params.set('category', cat);
+      }
+      if (comparison) {
+        params.set('comparisonMode', comparison);
+      }
+      const qs = params.toString();
+      const url = `/api/analytics${qs ? `?${qs}` : ''}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -375,7 +416,7 @@ export default function AnalyticsClient() {
       }
 
       const result: AnalyticsData = await response.json();
-      cacheRef.current[periodKey] = result;
+      cacheRef.current[cacheKey] = result;
       setAnalyticsData(result);
     } catch (err) {
       setAnalyticsError(err instanceof Error ? err.message : 'An error occurred');
@@ -385,8 +426,8 @@ export default function AnalyticsClient() {
   }, []);
 
   useEffect(() => {
-    fetchAnalytics(period);
-  }, [period, fetchAnalytics]);
+    fetchAnalytics(period, categoryFilter, comparisonMode);
+  }, [period, categoryFilter, comparisonMode, fetchAnalytics]);
 
   // ----------------------------------------
   // OCR Search: debounced fetch
@@ -546,7 +587,7 @@ export default function AnalyticsClient() {
       return (
         <div style={s.errorContainer}>
           <p style={s.errorText}>Error: {analyticsError}</p>
-          <button onClick={() => { cacheRef.current = {}; fetchAnalytics(period); }} style={s.retryButton}>
+          <button onClick={() => { cacheRef.current = {}; fetchAnalytics(period, categoryFilter, comparisonMode); }} style={s.retryButton}>
             Retry
           </button>
         </div>
@@ -565,10 +606,17 @@ export default function AnalyticsClient() {
       { name: 'Cover Charge', value: categoryMix.coverCharge },
     ].filter((d) => d.value > 0);
 
-    // Industry segment data for pie chart
-    const segmentPieData = industrySegmentMix
-      .filter((s) => s.revenue > 0)
-      .map((s) => ({ name: s.segment || 'Unknown', value: s.revenue }));
+    // Industry segment data for pie chart — Top N with optional "Other"
+    const sortedSegments = [...industrySegmentMix]
+      .filter((seg) => seg.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue);
+    const topSegments = sortedSegments.slice(0, segmentTopN);
+    const remainingSegments = sortedSegments.slice(segmentTopN);
+    const segmentPieData = topSegments.map((seg) => ({ name: seg.segment || 'Unknown', value: seg.revenue }));
+    if (showSegmentOther && remainingSegments.length > 0) {
+      const otherRevenue = remainingSegments.reduce((sum, seg) => sum + seg.revenue, 0);
+      segmentPieData.push({ name: 'Other', value: otherRevenue });
+    }
 
     // Metroplex top 10 for bar chart
     const metroBarData = [...metroplexBreakdown]
@@ -580,22 +628,55 @@ export default function AnalyticsClient() {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
 
+    // Handlers for period vs comparison mode mutual exclusion
+    const handlePeriodClick = (key: PeriodKey) => {
+      setPeriod(key);
+      setComparisonMode(null);
+    };
+
+    const handleComparisonClick = (key: ComparisonMode) => {
+      setComparisonMode(key);
+    };
+
+    const handleCategoryClick = (key: CategoryKey) => {
+      setCategoryFilter(key);
+      cacheRef.current = {};
+    };
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {/* Period Selector */}
-        <div style={s.periodRow}>
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              style={{
-                ...s.periodPill,
-                ...(period === p.key ? s.periodPillActive : {}),
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={s.periodRow}>
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => handlePeriodClick(p.key)}
+                style={{
+                  ...s.periodPill,
+                  ...(period === p.key && comparisonMode === null ? s.periodPillActive : {}),
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {/* Comparison Mode Pills */}
+          <div style={s.periodRow}>
+            <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500, alignSelf: 'center', marginRight: '4px' }}>Compare:</span>
+            {COMPARISONS.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => handleComparisonClick(c.key)}
+                style={{
+                  ...s.periodPill,
+                  ...(comparisonMode === c.key ? s.periodPillActive : {}),
+                }}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* KPI Cards */}
@@ -687,7 +768,39 @@ export default function AnalyticsClient() {
             </div>
           </div>
           <div style={s.chartSection}>
-            <h3 style={s.chartTitle}>Industry Segments</h3>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+              <h3 style={{ ...s.chartTitle, marginBottom: 0 }}>Industry Segments</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <button
+                    onClick={() => setSegmentTopN(Math.max(5, segmentTopN - 1))}
+                    style={s.segmentNButton}
+                    title="Show fewer segments"
+                  >
+                    -
+                  </button>
+                  <span style={{ fontSize: '12px', color: '#64748b', minWidth: '32px', textAlign: 'center' }}>
+                    Top {segmentTopN}
+                  </span>
+                  <button
+                    onClick={() => setSegmentTopN(Math.min(20, segmentTopN + 1))}
+                    style={s.segmentNButton}
+                    title="Show more segments"
+                  >
+                    +
+                  </button>
+                </div>
+                <button
+                  onClick={() => setShowSegmentOther(!showSegmentOther)}
+                  style={{
+                    ...s.segmentOtherToggle,
+                    ...(showSegmentOther ? s.segmentOtherToggleActive : {}),
+                  }}
+                >
+                  {showSegmentOther ? 'Hide Other' : 'Show Other'}
+                </button>
+              </div>
+            </div>
             <div style={{ width: '100%', height: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -746,6 +859,28 @@ export default function AnalyticsClient() {
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
+
+        {/* Category Filter Pills — applies to metroplex, county, and movers */}
+        <div style={s.categoryFilterRow}>
+          <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500, marginRight: '4px' }}>Category:</span>
+          {CATEGORIES.map((cat) => {
+            const isActive = categoryFilter === cat.key;
+            return (
+              <button
+                key={cat.key}
+                onClick={() => handleCategoryClick(cat.key)}
+                style={{
+                  ...s.periodPill,
+                  ...(isActive
+                    ? { background: cat.color, borderColor: cat.color, color: 'white' }
+                    : {}),
+                }}
+              >
+                {cat.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Metroplex + County Bar Charts */}
@@ -899,7 +1034,7 @@ export default function AnalyticsClient() {
       return (
         <div style={s.errorContainer}>
           <p style={s.errorText}>Error: {analyticsError}</p>
-          <button onClick={() => { cacheRef.current = {}; fetchAnalytics(period); }} style={s.retryButton}>
+          <button onClick={() => { cacheRef.current = {}; fetchAnalytics(period, categoryFilter, comparisonMode); }} style={s.retryButton}>
             Retry
           </button>
         </div>
@@ -910,10 +1045,18 @@ export default function AnalyticsClient() {
 
     const { industrySegmentMix } = analyticsData;
 
-    // Industry segment bar chart data for ownership context
-    const segmentBarData = [...industrySegmentMix]
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10);
+    // Industry segment bar chart data for ownership context — Top N with optional "Other"
+    const sortedOwnershipSegments = [...industrySegmentMix]
+      .filter((seg) => seg.revenue > 0)
+      .sort((a, b) => b.revenue - a.revenue);
+    const topOwnershipSegments = sortedOwnershipSegments.slice(0, segmentTopN);
+    const remainingOwnershipSegments = sortedOwnershipSegments.slice(segmentTopN);
+    const segmentBarData = [...topOwnershipSegments];
+    if (showSegmentOther && remainingOwnershipSegments.length > 0) {
+      const otherRevenue = remainingOwnershipSegments.reduce((sum, seg) => sum + seg.revenue, 0);
+      const otherCount = remainingOwnershipSegments.reduce((sum, seg) => sum + seg.customerCount, 0);
+      segmentBarData.push({ segment: 'Other', revenue: otherRevenue, customerCount: otherCount });
+    }
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -1078,7 +1221,39 @@ export default function AnalyticsClient() {
 
         {/* Industry Segment Bar Chart */}
         <div style={s.chartSection}>
-          <h3 style={s.chartTitle}>Revenue by Industry Segment</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+            <h3 style={{ ...s.chartTitle, marginBottom: 0 }}>Revenue by Industry Segment</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <button
+                  onClick={() => setSegmentTopN(Math.max(5, segmentTopN - 1))}
+                  style={s.segmentNButton}
+                  title="Show fewer segments"
+                >
+                  -
+                </button>
+                <span style={{ fontSize: '12px', color: '#64748b', minWidth: '32px', textAlign: 'center' }}>
+                  Top {segmentTopN}
+                </span>
+                <button
+                  onClick={() => setSegmentTopN(Math.min(20, segmentTopN + 1))}
+                  style={s.segmentNButton}
+                  title="Show more segments"
+                >
+                  +
+                </button>
+              </div>
+              <button
+                onClick={() => setShowSegmentOther(!showSegmentOther)}
+                style={{
+                  ...s.segmentOtherToggle,
+                  ...(showSegmentOther ? s.segmentOtherToggleActive : {}),
+                }}
+              >
+                {showSegmentOther ? 'Hide Other' : 'Show Other'}
+              </button>
+            </div>
+          </div>
           {segmentBarData.length === 0 ? (
             <div style={s.emptyMini}>No segment data available</div>
           ) : (
@@ -1373,6 +1548,50 @@ const s: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
   },
   periodPillActive: {
+    background: '#0d7377',
+    borderColor: '#0d7377',
+    color: 'white',
+  },
+
+  // Category filter row
+  categoryFilterRow: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+
+  // Segment Top N controls
+  segmentNButton: {
+    width: '24px',
+    height: '24px',
+    borderRadius: '6px',
+    border: '1px solid #cbd5e1',
+    background: 'white',
+    color: '#475569',
+    fontSize: '14px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    lineHeight: 1,
+    transition: 'all 0.15s',
+  },
+  segmentOtherToggle: {
+    padding: '4px 10px',
+    borderRadius: '12px',
+    border: '1px solid #cbd5e1',
+    background: 'white',
+    color: '#64748b',
+    fontSize: '11px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    whiteSpace: 'nowrap',
+  },
+  segmentOtherToggleActive: {
     background: '#0d7377',
     borderColor: '#0d7377',
     color: 'white',
