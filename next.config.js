@@ -7,6 +7,7 @@ const nextConfig = {
       '@duckdb/node-bindings',
       'tesseract.js',
       'tesseract.js-core',
+      '@anthropic-ai/sdk',
     ],
   },
 

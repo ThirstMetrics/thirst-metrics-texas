@@ -10,6 +10,26 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import dynamic from 'next/dynamic';
+
+// Dynamic import to avoid SSR issues and keep bundle size manageable
+const AdminEnrichments = dynamic(() => import('@/components/admin-enrichments'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ padding: '60px 20px', textAlign: 'center', color: '#64748b' }}>
+      <div style={{
+        width: '36px',
+        height: '36px',
+        border: '4px solid #f3f3f3',
+        borderTop: '4px solid #0d7377',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite',
+        margin: '0 auto 12px',
+      }} />
+      Loading enrichments...
+    </div>
+  ),
+});
 
 // ============================================
 // Types
@@ -82,7 +102,7 @@ interface IngestionCheckResult {
   instructions: string;
 }
 
-type TabKey = 'overview' | 'users' | 'ingestion' | 'activity';
+type TabKey = 'overview' | 'users' | 'ingestion' | 'activity' | 'enrichments';
 type UserSortField = 'email' | 'role' | 'activityCount';
 type SortDir = 'asc' | 'desc';
 
@@ -103,6 +123,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'users', label: 'Users' },
   { key: 'ingestion', label: 'Data Ingestion' },
   { key: 'activity', label: 'Activity Analytics' },
+  { key: 'enrichments', label: 'Enrichments' },
 ];
 
 // ============================================
@@ -1696,6 +1717,7 @@ export default function AdminClient() {
         {activeTab === 'users' && renderUsers()}
         {activeTab === 'ingestion' && renderIngestion()}
         {activeTab === 'activity' && renderActivityAnalytics()}
+        {activeTab === 'enrichments' && <AdminEnrichments />}
       </div>
     </div>
   );

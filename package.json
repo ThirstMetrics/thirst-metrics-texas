@@ -17,6 +17,7 @@
     "test:duckdb": "tsx scripts/test-duckdb.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
     "@duckdb/node-api": "^1.4.4-r.1",
     "@duckdb/node-bindings": "^1.4.4-r.1",
     "@mapbox/mapbox-sdk": "^0.15.0",
