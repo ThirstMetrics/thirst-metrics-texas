@@ -36,7 +36,7 @@ export default function Error({
           We encountered an unexpected error. Please try again or return to the dashboard.
         </p>
 
-        {isDevelopment && error.message && (
+        {error.message && (
           <div style={styles.errorDetails}>
             <p style={styles.errorLabel}>Error Details:</p>
             <code style={styles.errorMessage}>{error.message}</code>
