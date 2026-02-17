@@ -1203,7 +1203,34 @@ export default function AdminClient() {
         </div>
 
         {/* Run Ingestion */}
-        <div style={s.card}>
+        <div style={{
+          ...s.card,
+          ...(ingestionRunning ? {
+            border: '2px solid #22c55e',
+            animation: 'glowGreen 2s ease-in-out infinite',
+            position: 'relative' as const,
+            overflow: 'hidden' as const,
+          } : {}),
+        }}>
+          {/* Animated progress bar at top of card */}
+          {ingestionRunning && (
+            <div style={{
+              position: 'absolute' as const,
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '3px',
+              background: 'rgba(34,197,94,0.15)',
+              overflow: 'hidden' as const,
+            }}>
+              <div style={{
+                width: '50%',
+                height: '100%',
+                background: 'linear-gradient(90deg, transparent, #22c55e, transparent)',
+                animation: 'progressSlide 1.5s ease-in-out infinite',
+              }} />
+            </div>
+          )}
           <h3 style={s.cardTitle}>Run Ingestion</h3>
           <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px 0' }}>
             Remotely trigger the ingestion script on the production server via a background screen session. This will fetch new records from the Texas.gov API and insert them into the database.
@@ -1236,6 +1263,33 @@ export default function AdminClient() {
               </span>
             ) : 'Run Ingestion'}
           </button>
+
+          {/* Immediate feedback before first poll */}
+          {ingestionRunning && !ingestionStatus && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid #93c5fd',
+              background: '#eff6ff',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}>
+              <span style={{
+                display: 'inline-block',
+                width: '14px',
+                height: '14px',
+                border: '2px solid rgba(13,115,119,0.3)',
+                borderTop: '2px solid #0d7377',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+              }} />
+              <span style={{ fontWeight: 600, fontSize: '14px', color: '#1e40af' }}>
+                Launching ingestion on server...
+              </span>
+            </div>
+          )}
 
           {/* Live Status (while running) */}
           {ingestionRunning && ingestionStatus && (
@@ -1365,7 +1419,34 @@ export default function AdminClient() {
           )}
         </div>
         {/* Backfill Historical Data */}
-        <div style={s.card}>
+        <div style={{
+          ...s.card,
+          ...(backfillRunning ? {
+            border: '2px solid #7c3aed',
+            animation: 'glowPurple 2s ease-in-out infinite',
+            position: 'relative' as const,
+            overflow: 'hidden' as const,
+          } : {}),
+        }}>
+          {/* Animated progress bar at top of card */}
+          {backfillRunning && (
+            <div style={{
+              position: 'absolute' as const,
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '3px',
+              background: 'rgba(124,58,237,0.15)',
+              overflow: 'hidden' as const,
+            }}>
+              <div style={{
+                width: '50%',
+                height: '100%',
+                background: 'linear-gradient(90deg, transparent, #7c3aed, transparent)',
+                animation: 'progressSlide 1.5s ease-in-out infinite',
+              }} />
+            </div>
+          )}
           <h3 style={s.cardTitle}>Backfill Historical Data</h3>
           <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px 0' }}>
             Load historical data backwards from the earliest date in the database. Choose how many months to fetch per run.
@@ -1451,6 +1532,33 @@ export default function AdminClient() {
               </span>
             ) : 'Run Backfill'}
           </button>
+
+          {/* Immediate feedback before first poll */}
+          {backfillRunning && !backfillStatus && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid #c4b5fd',
+              background: '#f5f3ff',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}>
+              <span style={{
+                display: 'inline-block',
+                width: '14px',
+                height: '14px',
+                border: '2px solid rgba(124,58,237,0.3)',
+                borderTop: '2px solid #7c3aed',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+              }} />
+              <span style={{ fontWeight: 600, fontSize: '14px', color: '#5b21b6' }}>
+                Launching backfill on server...
+              </span>
+            </div>
+          )}
 
           {/* Live Status (while running) */}
           {backfillRunning && backfillStatus && (
@@ -1709,6 +1817,18 @@ export default function AdminClient() {
       <style>{`
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes glowGreen {
+          0%, 100% { box-shadow: 0 0 8px rgba(34,197,94,0.3), 0 0 0 2px rgba(34,197,94,0.15); border-color: #22c55e; }
+          50% { box-shadow: 0 0 20px rgba(34,197,94,0.5), 0 0 0 3px rgba(34,197,94,0.3); border-color: #16a34a; }
+        }
+        @keyframes glowPurple {
+          0%, 100% { box-shadow: 0 0 8px rgba(124,58,237,0.3), 0 0 0 2px rgba(124,58,237,0.15); border-color: #7c3aed; }
+          50% { box-shadow: 0 0 20px rgba(124,58,237,0.5), 0 0 0 3px rgba(124,58,237,0.3); border-color: #6d28d9; }
+        }
+        @keyframes progressSlide {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
       `}</style>
 
       {renderTabs()}
