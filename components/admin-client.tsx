@@ -174,6 +174,28 @@ export default function AdminClient() {
   } | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Backfill state
+  const [backfillMonths, setBackfillMonths] = useState(6);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{
+    success: boolean;
+    message: string;
+    summary?: { added: string; modified: string; errors: string };
+    error?: string;
+  } | null>(null);
+  const [backfillStatus, setBackfillStatus] = useState<{
+    running: boolean;
+    output: string;
+    startedAt: string | null;
+    screenActive: boolean;
+  } | null>(null);
+  const [backfillBoundary, setBackfillBoundary] = useState<{
+    earliestDate: string | null;
+    latestDate: string | null;
+    totalRecords: number;
+  } | null>(null);
+  const backfillPollingRef = useRef<NodeJS.Timeout | null>(null);
+
   // Track which tabs have been fetched (lazy loading + caching)
   const fetchedRef = useRef<Record<string, boolean>>({ overview: false, users: false, ingestion: false });
 
@@ -446,6 +468,140 @@ export default function AdminClient() {
       setIngestionRunning(false);
     }
   }, [startPolling]);
+
+  // ----------------------------------------
+  // Backfill: fetch data boundaries
+  // ----------------------------------------
+
+  const fetchBackfillBoundary = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/backfill');
+      if (res.ok) {
+        const data = await res.json();
+        setBackfillBoundary(data);
+      }
+    } catch {
+      // silently ignore
+    }
+  }, []);
+
+  // Fetch boundaries when ingestion tab opens
+  useEffect(() => {
+    if (activeTab === 'ingestion' && !backfillBoundary) {
+      fetchBackfillBoundary();
+    }
+  }, [activeTab, backfillBoundary, fetchBackfillBoundary]);
+
+  // ----------------------------------------
+  // Backfill: polling
+  // ----------------------------------------
+
+  const stopBackfillPolling = useCallback(() => {
+    if (backfillPollingRef.current) {
+      clearInterval(backfillPollingRef.current);
+      backfillPollingRef.current = null;
+    }
+  }, []);
+
+  const pollBackfillStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/backfill', { method: 'DELETE' });
+      if (!res.ok) return;
+      const status = await res.json();
+      setBackfillStatus(status);
+
+      if (!status.running && !status.screenActive) {
+        stopBackfillPolling();
+        setBackfillRunning(false);
+        const output = status.output || '';
+        const addedMatch = output.match(/Added:\s*(\d[\d,]*)/);
+        const modifiedMatch = output.match(/Modified:\s*(\d[\d,]*)/);
+        const errorMatch = output.match(/Errors:\s*(\d[\d,]*)/);
+        const hasComplete = output.includes('BACKFILL COMPLETE');
+
+        if (hasComplete || addedMatch) {
+          setBackfillResult({
+            success: true,
+            message: `Backfill complete. Added: ${addedMatch?.[1] || '0'}, Modified: ${modifiedMatch?.[1] || '0'}`,
+            summary: {
+              added: addedMatch?.[1] || '0',
+              modified: modifiedMatch?.[1] || '0',
+              errors: errorMatch?.[1] || '0',
+            },
+          });
+        } else if (output.includes('Fatal') || output.includes('ERROR LIMIT') || output.includes('ABORT')) {
+          setBackfillResult({
+            success: false,
+            message: 'Backfill failed. Check log output for details.',
+            error: output.substring(output.length - 500),
+          });
+        }
+        // Refresh boundaries
+        fetchBackfillBoundary();
+        fetchedRef.current.ingestion = false;
+      }
+    } catch {
+      // silently ignore
+    }
+  }, [stopBackfillPolling, fetchBackfillBoundary]);
+
+  const startBackfillPolling = useCallback(() => {
+    stopBackfillPolling();
+    pollBackfillStatus();
+    backfillPollingRef.current = setInterval(pollBackfillStatus, 5000);
+  }, [stopBackfillPolling, pollBackfillStatus]);
+
+  useEffect(() => {
+    return () => stopBackfillPolling();
+  }, [stopBackfillPolling]);
+
+  // ----------------------------------------
+  // Backfill: trigger
+  // ----------------------------------------
+
+  const handleRunBackfill = useCallback(async () => {
+    setBackfillRunning(true);
+    setBackfillResult(null);
+    setBackfillStatus(null);
+    try {
+      const res = await fetch('/api/admin/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ months: backfillMonths }),
+      });
+      const result = await res.json();
+
+      if (res.status === 409) {
+        setBackfillResult({
+          success: false,
+          message: `Backfill is already running (started ${result.startedAt || 'unknown'})`,
+          error: 'Already running',
+        });
+        setBackfillRunning(false);
+        startBackfillPolling();
+        return;
+      }
+
+      if (!res.ok) {
+        setBackfillResult({
+          success: false,
+          message: result.error || 'Failed to start backfill',
+          error: result.error || 'Unknown error',
+        });
+        setBackfillRunning(false);
+        return;
+      }
+
+      startBackfillPolling();
+    } catch (err) {
+      setBackfillResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Backfill request failed',
+        error: 'Network error',
+      });
+      setBackfillRunning(false);
+    }
+  }, [backfillMonths, startBackfillPolling]);
 
   // ----------------------------------------
   // Users: sorting
@@ -1182,6 +1338,209 @@ export default function AdminClient() {
                   whiteSpace: 'pre-wrap',
                 }}>
                   {ingestionResult.error}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* Backfill Historical Data */}
+        <div style={s.card}>
+          <h3 style={s.cardTitle}>Backfill Historical Data</h3>
+          <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px 0' }}>
+            Load historical data backwards from the earliest date in the database. Choose how many months to fetch per run.
+          </p>
+
+          {/* Data boundaries */}
+          {backfillBoundary && (
+            <div style={{ ...s.statsCard, marginBottom: '16px' }}>
+              <div style={s.statsRow}>
+                <span style={s.statsKey}>Earliest Date in DB</span>
+                <span style={{ ...s.statsValue, fontWeight: 700, color: BRAND.primary }}>
+                  {backfillBoundary.earliestDate ? formatDate(backfillBoundary.earliestDate) : 'N/A'}
+                </span>
+              </div>
+              <div style={s.statsRow}>
+                <span style={s.statsKey}>Latest Date in DB</span>
+                <span style={s.statsValue}>
+                  {backfillBoundary.latestDate ? formatDate(backfillBoundary.latestDate) : 'N/A'}
+                </span>
+              </div>
+              <div style={s.statsRow}>
+                <span style={s.statsKey}>Total Records</span>
+                <span style={s.statsValue}>{formatNumber(backfillBoundary.totalRecords)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Month selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
+              Months to backfill:
+            </label>
+            <select
+              value={backfillMonths}
+              onChange={(e) => setBackfillMonths(parseInt(e.target.value, 10))}
+              disabled={backfillRunning}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #d1d5db',
+                fontSize: '14px',
+                color: '#334155',
+                background: backfillRunning ? '#f1f5f9' : 'white',
+                cursor: backfillRunning ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <option value={1}>1 month</option>
+              <option value={3}>3 months</option>
+              <option value={6}>6 months</option>
+              <option value={12}>12 months</option>
+              <option value={24}>24 months</option>
+              <option value={36}>36 months</option>
+              <option value={48}>48 months</option>
+              <option value={60}>60 months (5 years)</option>
+            </select>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+              ~{formatNumber(backfillMonths * 23000)} estimated records
+            </span>
+          </div>
+
+          <button
+            onClick={handleRunBackfill}
+            disabled={backfillRunning}
+            style={{
+              ...s.primaryButton,
+              background: backfillRunning ? '#94a3b8' : '#7c3aed',
+              opacity: backfillRunning ? 0.8 : 1,
+              cursor: backfillRunning ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {backfillRunning ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{
+                  display: 'inline-block',
+                  width: '14px',
+                  height: '14px',
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  borderTop: '2px solid white',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                }} />
+                Running Backfill...
+              </span>
+            ) : 'Run Backfill'}
+          </button>
+
+          {/* Live Status (while running) */}
+          {backfillRunning && backfillStatus && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid #c4b5fd',
+              background: '#f5f3ff',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{
+                    display: 'inline-block',
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '50%',
+                    background: backfillStatus.screenActive ? '#7c3aed' : '#f59e0b',
+                    animation: backfillStatus.screenActive ? 'pulse 2s infinite' : 'none',
+                  }} />
+                  <span style={{ fontWeight: 600, fontSize: '14px', color: '#5b21b6' }}>
+                    {backfillStatus.screenActive ? 'Backfill Running' : 'Finishing up...'}
+                  </span>
+                </div>
+                {backfillStatus.startedAt && (
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>
+                    Started: {formatDateTime(backfillStatus.startedAt)}
+                  </span>
+                )}
+              </div>
+
+              {backfillStatus.output && (
+                <div style={{
+                  background: '#1e293b',
+                  borderRadius: '6px',
+                  padding: '12px',
+                  maxHeight: '240px',
+                  overflow: 'auto',
+                  fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                  fontSize: '11px',
+                  lineHeight: 1.5,
+                  color: '#e2e8f0',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}>
+                  {backfillStatus.output}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Backfill Result (when complete) */}
+          {!backfillRunning && backfillResult && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: `1px solid ${backfillResult.success ? '#86efac' : '#fca5a5'}`,
+              background: backfillResult.success ? '#f0fdf4' : '#fef2f2',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '18px' }}>
+                  {backfillResult.success ? '\u2705' : '\u274C'}
+                </span>
+                <span style={{
+                  fontWeight: 600,
+                  fontSize: '15px',
+                  color: backfillResult.success ? '#166534' : '#991b1b',
+                }}>
+                  {backfillResult.message}
+                </span>
+              </div>
+
+              {backfillResult.summary && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                  gap: '12px',
+                  marginTop: '12px',
+                }}>
+                  <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#7c3aed' }}>{backfillResult.summary.added}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Added</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#f59e0b' }}>{backfillResult.summary.modified}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Modified</div>
+                  </div>
+                  {backfillResult.summary.errors !== '0' && (
+                    <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>{backfillResult.summary.errors}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>Errors</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {backfillResult.error && !backfillResult.success && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '10px',
+                  background: '#fff5f5',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontFamily: 'monospace',
+                  color: '#991b1b',
+                  maxHeight: '120px',
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {backfillResult.error}
                 </div>
               )}
             </div>

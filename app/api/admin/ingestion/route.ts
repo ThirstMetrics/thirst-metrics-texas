@@ -245,17 +245,20 @@ export async function POST() {
         }
 
         // Step 2: Fetch the highest-revenue sample records from new data
-        // This gives the admin a meaningful preview of real data that arrived
+        // Shows top 5 by total_receipts from the latest month available in the API
+        // This gives the admin a meaningful preview of real data
         const sampleUrl = new URL(TEXAS_API_URL);
         sampleUrl.searchParams.set('$limit', '5');
         sampleUrl.searchParams.set('$order', 'total_receipts DESC');
 
-        // Filter for records after the latest DB date with actual revenue
-        if (latestInDb) {
-          const latestDbFormatted = latestInDb.substring(0, 10);
+        // Filter for records in the latest API month with actual revenue
+        if (latestInApi) {
+          // Get the first day of the latest month in the API
+          const latestMonth = latestInApi.substring(0, 7); // "2026-02"
+          const monthStart = `${latestMonth}-01T00:00:00.000`;
           sampleUrl.searchParams.set(
             '$where',
-            `obligation_end_date_yyyymmdd > '${latestDbFormatted}T00:00:00.000' AND total_receipts > 0`
+            `obligation_end_date_yyyymmdd >= '${monthStart}' AND total_receipts > 0`
           );
         } else {
           sampleUrl.searchParams.set('$where', 'total_receipts > 0');

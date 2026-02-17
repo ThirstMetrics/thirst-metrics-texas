@@ -51,7 +51,7 @@ export default async function RootLayout({
           />
         )}
         {children}
-        <div style={{ position: 'fixed', bottom: 4, right: 8, fontSize: '10px', opacity: 0.4, color: '#666', zIndex: 9999, pointerEvents: 'none' }}>
+        <div style={{ position: 'fixed', bottom: 4, right: 8, fontSize: '10px', opacity: 0.85, color: '#475569', zIndex: 9999, pointerEvents: 'none' }}>
           Build: {new Date().toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })} CT
         </div>
       </body>
