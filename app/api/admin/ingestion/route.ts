@@ -244,39 +244,66 @@ export async function POST() {
           estimatedNewRecords = newMonthsAvailable.length * 23000;
         }
 
-        // Step 2: Fetch the highest-revenue sample records from new data
-        // Shows top 5 by total_receipts from the latest month available in the API
-        // This gives the admin a meaningful preview of real data
-        const sampleUrl = new URL(TEXAS_API_URL);
-        sampleUrl.searchParams.set('$limit', '5');
-        sampleUrl.searchParams.set('$order', 'total_receipts DESC');
-
-        // Filter for records in the latest API month with actual revenue
-        if (latestInApi) {
-          // Get the first day of the latest month in the API
-          const latestMonth = latestInApi.substring(0, 7); // "2026-02"
-          const monthStart = `${latestMonth}-01T00:00:00.000`;
-          sampleUrl.searchParams.set(
-            '$where',
-            `obligation_end_date_yyyymmdd >= '${monthStart}' AND total_receipts > 0`
-          );
-        } else {
-          sampleUrl.searchParams.set('$where', 'total_receipts > 0');
-        }
+        // Step 2: Fetch the highest-revenue sample records
+        // Strategy: get top 5 from the latest month in the API.
+        // If fewer than 5 results (month still being reported), backfill
+        // with top records from the most recent complete month.
+        const mapRecord = (record: any) => {
+          const dateStr = record.obligation_end_date_yyyymmdd;
+          return {
+            permit: record.tabc_permit_number || '',
+            name: record.location_name || '',
+            date: dateStr ? formatDateFromApi(dateStr) : '',
+            total: parseFloat(record.total_receipts) || 0,
+          };
+        };
 
         try {
+          // First: try from the latest API month
+          const sampleUrl = new URL(TEXAS_API_URL);
+          sampleUrl.searchParams.set('$limit', '5');
+          sampleUrl.searchParams.set('$order', 'total_receipts DESC');
+
+          if (latestInApi) {
+            const latestMonth = latestInApi.substring(0, 7);
+            const monthStart = `${latestMonth}-01T00:00:00.000`;
+            sampleUrl.searchParams.set(
+              '$where',
+              `obligation_end_date_yyyymmdd >= '${monthStart}' AND total_receipts > 0`
+            );
+          } else {
+            sampleUrl.searchParams.set('$where', 'total_receipts > 0');
+          }
+
           const sampleResponse = await fetch(sampleUrl.toString());
           if (sampleResponse.ok) {
             const sampleData: any[] = await sampleResponse.json();
-            sampleRecords = sampleData.map((record) => {
-              const dateStr = record.obligation_end_date_yyyymmdd;
-              return {
-                permit: record.tabc_permit_number || '',
-                name: record.location_name || '',
-                date: dateStr ? formatDateFromApi(dateStr) : '',
-                total: parseFloat(record.total_receipts) || 0,
-              };
-            });
+            sampleRecords = sampleData.map(mapRecord);
+          }
+
+          // If fewer than 5 and we have a latest DB date, supplement with
+          // top records from the most recent complete month (the one in DB)
+          if (sampleRecords.length < 5 && latestInDb) {
+            const dbMonth = latestInDb.substring(0, 7);
+            const dbMonthStart = `${dbMonth}-01T00:00:00.000`;
+            const dbMonthEndDate = new Date(latestInDb);
+            dbMonthEndDate.setMonth(dbMonthEndDate.getMonth() + 1);
+            dbMonthEndDate.setDate(1);
+            const dbMonthEnd = dbMonthEndDate.toISOString().split('T')[0] + 'T00:00:00.000';
+
+            const backfillUrl = new URL(TEXAS_API_URL);
+            backfillUrl.searchParams.set('$limit', String(5 - sampleRecords.length));
+            backfillUrl.searchParams.set('$order', 'total_receipts DESC');
+            backfillUrl.searchParams.set(
+              '$where',
+              `obligation_end_date_yyyymmdd >= '${dbMonthStart}' AND obligation_end_date_yyyymmdd < '${dbMonthEnd}' AND total_receipts > 0`
+            );
+
+            const backfillResponse = await fetch(backfillUrl.toString());
+            if (backfillResponse.ok) {
+              const backfillData: any[] = await backfillResponse.json();
+              sampleRecords = [...sampleRecords, ...backfillData.map(mapRecord)];
+            }
           }
         } catch (sampleErr: any) {
           console.error('[Admin Ingestion API] Sample query error:', sampleErr?.message ?? sampleErr);
@@ -285,15 +312,7 @@ export async function POST() {
             .filter((r) => parseFloat(r.total_receipts) > 0)
             .sort((a, b) => (parseFloat(b.total_receipts) || 0) - (parseFloat(a.total_receipts) || 0))
             .slice(0, 5);
-          sampleRecords = sorted.map((record) => {
-            const dateStr = record.obligation_end_date_yyyymmdd;
-            return {
-              permit: record.tabc_permit_number || '',
-              name: record.location_name || '',
-              date: dateStr ? formatDateFromApi(dateStr) : '',
-              total: parseFloat(record.total_receipts) || 0,
-            };
-          });
+          sampleRecords = sorted.map(mapRecord);
         }
       }
     } catch (apiError: any) {
