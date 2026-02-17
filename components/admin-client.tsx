@@ -1235,8 +1235,8 @@ export default function AdminClient() {
           <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px 0' }}>
             Fetch new records from the Texas.gov API and insert them into the database. The process runs in a background screen session.
           </p>
-          <p style={{ fontSize: '13px', color: '#d97706', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {'\u26A0\uFE0F'} The site will be briefly unavailable during ingestion (DuckDB requires exclusive write access). It will auto-restart when done.
+          <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 16px 0' }}>
+            Status updates every 5 seconds. The live log shows record counts as data flows in.
           </p>
           <button
             onClick={handleRunIngestion}
@@ -1451,8 +1451,8 @@ export default function AdminClient() {
           <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px 0' }}>
             Load historical data backwards from the earliest date in the database. Choose how many months to fetch per run.
           </p>
-          <p style={{ fontSize: '13px', color: '#d97706', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {'\u26A0\uFE0F'} The site will be briefly unavailable during backfill (DuckDB requires exclusive write access). It will auto-restart when done.
+          <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 12px 0' }}>
+            Status updates every 5 seconds. The live log shows record counts as data flows in.
           </p>
 
           {/* Data boundaries */}

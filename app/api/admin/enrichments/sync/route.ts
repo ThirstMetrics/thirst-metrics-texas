@@ -8,6 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServerClient, createServiceClient } from '@/lib/supabase/server';
+import { closeDuckDB } from '@/lib/duckdb/connection';
 import { isProductionServer, APP_PATH } from '@/lib/server/exec-remote';
 
 export const dynamic = 'force-dynamic';
@@ -106,28 +107,21 @@ export async function POST() {
     }
 
     // Launch sync script in a detached screen session
+    // The sync script manages its own lock file — do NOT create one here.
+    // DuckDB lock is released via closeDuckDB() call before launching screen.
     const remoteScript = [
-      `trap 'rm -f ${lockFile}' EXIT`,
-      `printf '{\\\\n  "startedAt": "%s",\\\\n  "pid": "%s"\\\\n}\\\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" > ${lockFile}`,
       `export NVM_DIR="$HOME/.nvm"`,
       `[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`,
       `cd ${APP_PATH}`,
-      // Stop Next.js to release DuckDB file lock (DuckDB only allows one writer)
-      `echo "Stopping Next.js server to release DuckDB lock..."`,
-      `pkill -f "next start" 2>/dev/null`,
-      `sleep 3`,
       `npx tsx scripts/sync-enrichments-to-duckdb.ts 2>&1 | tee ${logFile}`,
-      // Restart Next.js after sync completes
-      `echo "Restarting Next.js server..."`,
-      `cd ${APP_PATH}`,
-      `nohup node node_modules/.bin/next start -p 3000 > /tmp/next-server.log 2>&1 &`,
-      `sleep 2`,
-      `echo "Next.js server restarted (PID $!)"`,
     ].join(' ; ');
 
     const screenCommand = isLocal
       ? `screen -dmS thirst-enrich-sync bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-enrich-sync bash -c '${remoteScript}'"`;
+
+    // Release DuckDB file lock so the sync script can open it for WRITE
+    await closeDuckDB();
 
     console.log(`[Enrichment Sync API] Launching sync screen session ${isLocal ? 'locally' : 'via SSH'}...`);
 

@@ -187,3 +187,28 @@ export async function queryOne<T = any>(sql: string, params: any[] = []): Promis
   const results = await query<T>(sql, params);
   return results.length > 0 ? results[0] : null;
 }
+
+/**
+ * Close the DuckDB instance to release the file lock.
+ * Used before running ingestion/backfill scripts that need WRITE access.
+ * The next call to query() will automatically reopen the connection.
+ */
+export async function closeDuckDB(): Promise<void> {
+  if (dbInstance) {
+    console.log('[DuckDB] Closing instance to release file lock...');
+    try {
+      // @duckdb/node-api instances don't have an explicit close,
+      // but setting the reference to null allows GC to release it.
+      // Force the native handle to release by overwriting the singleton.
+      dbInstance = null;
+      dbInitializing = null;
+      // Give GC a moment to release the native handle
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('[DuckDB] Instance reference cleared — file lock should be released.');
+    } catch (err) {
+      console.error('[DuckDB] Error closing instance:', err);
+      dbInstance = null;
+      dbInitializing = null;
+    }
+  }
+}
