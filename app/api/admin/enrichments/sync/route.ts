@@ -8,14 +8,14 @@
 
 import { NextResponse } from 'next/server';
 import { createServerClient, createServiceClient } from '@/lib/supabase/server';
+import { isProductionServer, APP_PATH } from '@/lib/server/exec-remote';
 
 export const dynamic = 'force-dynamic';
 
-// SSH connection details for production server
+// SSH connection details (used when running from dev machine)
 const SSH_HOST = '167.71.242.157';
 const SSH_USER = 'master_nrbudqgaus';
 const SSH_KEY_PATH = process.env.SSH_KEY_PATH || '~/.ssh/id_ed25519';
-const APP_PATH = '~/applications/gnhezcjyuk/public_html';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,14 +72,19 @@ export async function POST() {
     }
 
     const { exec } = await import('child_process');
-    const sshBase = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
+    const isLocal = isProductionServer();
+    const sshBase = isLocal ? '' : `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
     const lockFile = `${APP_PATH}/data/.enrichment-sync-lock.json`;
     const logFile = `${APP_PATH}/data/.enrichment-sync-log.txt`;
 
     // Check if sync is already running
+    const lockCheckCmd = isLocal
+      ? `bash -c 'test -f ${lockFile} && cat ${lockFile} || echo "__NO_LOCK__"'`
+      : `${sshBase} "test -f ${lockFile} && cat ${lockFile} || echo '__NO_LOCK__'"`;
+
     const checkLockResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
-        `${sshBase} "test -f ${lockFile} && cat ${lockFile} || echo '__NO_LOCK__'"`,
+        lockCheckCmd,
         { timeout: 30_000 },
         (error, stdout, stderr) => resolve({ stdout: stdout || '', stderr: stderr || '', error })
       );
@@ -110,9 +115,11 @@ export async function POST() {
       `npx tsx scripts/sync-enrichments-to-duckdb.ts 2>&1 | tee ${logFile}`,
     ].join(' ; ');
 
-    const screenCommand = `${sshBase} "screen -dmS thirst-enrich-sync bash -c '${remoteScript}'"`;
+    const screenCommand = isLocal
+      ? `screen -dmS thirst-enrich-sync bash -c '${remoteScript}'`
+      : `${sshBase} "screen -dmS thirst-enrich-sync bash -c '${remoteScript}'"`;
 
-    console.log('[Enrichment Sync API] Launching sync screen session...');
+    console.log(`[Enrichment Sync API] Launching sync screen session ${isLocal ? 'locally' : 'via SSH'}...`);
 
     const launchResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
@@ -157,13 +164,12 @@ export async function DELETE() {
     }
 
     const { exec } = await import('child_process');
-    const sshBase = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
+    const isLocal = isProductionServer();
+    const sshBase = isLocal ? '' : `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
     const lockFile = `${APP_PATH}/data/.enrichment-sync-lock.json`;
     const logFile = `${APP_PATH}/data/.enrichment-sync-log.txt`;
 
-    const statusCommand = [
-      sshBase,
-      `"`,
+    const statusScript = [
       `echo '===LOCK_START===';`,
       `if [ -f ${lockFile} ]; then cat ${lockFile}; else echo '__NO_LOCK__'; fi;`,
       `echo '===LOCK_END===';`,
@@ -173,8 +179,11 @@ export async function DELETE() {
       `echo '===SCREEN_START===';`,
       `screen -ls 2>/dev/null | grep thirst-enrich-sync || echo '__NO_SCREEN__';`,
       `echo '===SCREEN_END===';`,
-      `"`,
     ].join(' ');
+
+    const statusCommand = isLocal
+      ? `bash -c '${statusScript}'`
+      : `${sshBase} "${statusScript}"`;
 
     const statusResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(

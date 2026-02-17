@@ -11,16 +11,16 @@
 import { NextResponse } from 'next/server';
 import { createServerClient, createServiceClient } from '@/lib/supabase/server';
 import { query } from '@/lib/duckdb/connection';
+import { isProductionServer, APP_PATH } from '@/lib/server/exec-remote';
 
 export const dynamic = 'force-dynamic';
 
 const TEXAS_API_URL = 'https://data.texas.gov/resource/naix-2893.json';
 
-// SSH connection details for production server
+// SSH connection details for production server (used when running from dev machine)
 const SSH_HOST = '167.71.242.157';
 const SSH_USER = 'master_nrbudqgaus';
 const SSH_KEY_PATH = process.env.SSH_KEY_PATH || '~/.ssh/id_ed25519';
-const APP_PATH = '~/applications/gnhezcjyuk/public_html';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -370,14 +370,19 @@ export async function PUT() {
     }
 
     const { exec } = await import('child_process');
-    const sshBase = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
+    const isLocal = isProductionServer();
+    const sshBase = isLocal ? '' : `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
     const lockFile = `${APP_PATH}/data/.ingestion-lock.json`;
     const logFile = `${APP_PATH}/data/.ingestion-log.txt`;
 
     // Step 1: Check if a lock file already exists (ingestion already running)
+    const lockCheckCmd = isLocal
+      ? `bash -c 'test -f ${lockFile} && cat ${lockFile} || echo "__NO_LOCK__"'`
+      : `${sshBase} "test -f ${lockFile} && cat ${lockFile} || echo '__NO_LOCK__'"`;
+
     const checkLockResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
-        `${sshBase} "test -f ${lockFile} && cat ${lockFile} || echo '__NO_LOCK__'"`,
+        lockCheckCmd,
         { timeout: 30_000 },
         (error, stdout, stderr) => resolve({ stdout: stdout || '', stderr: stderr || '', error })
       );
@@ -428,10 +433,12 @@ export async function PUT() {
       `npx tsx scripts/ingest-beverage-receipts.ts 2>&1 | tee ${logFile}`,
     ].join(' ; ');
 
-    // SSH wraps in double quotes; screen uses single quotes around the bash -c argument
-    const screenCommand = `${sshBase} "screen -dmS thirst-ingest bash -c '${remoteScript}'"`;
+    // Build the full command: either local screen or SSH-wrapped screen
+    const screenCommand = isLocal
+      ? `screen -dmS thirst-ingest bash -c '${remoteScript}'`
+      : `${sshBase} "screen -dmS thirst-ingest bash -c '${remoteScript}'"`;
 
-    console.log('[Admin Ingestion API] Launching detached screen session via SSH...');
+    console.log(`[Admin Ingestion API] Launching detached screen session ${isLocal ? 'locally' : 'via SSH'}...`);
 
     const launchResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
@@ -479,30 +486,29 @@ export async function DELETE() {
     }
 
     const { exec } = await import('child_process');
-    const sshBase = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
+    const isLocal = isProductionServer();
+    const sshBase = isLocal ? '' : `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
     const lockFile = `${APP_PATH}/data/.ingestion-lock.json`;
     const logFile = `${APP_PATH}/data/.ingestion-log.txt`;
 
-    // Run all status checks in a single SSH call to avoid multiple connections
-    const statusCommand = [
-      sshBase,
-      `"`,
-      // 1. Check lock file
+    // Run all status checks in a single call
+    const statusScript = [
       `echo '===LOCK_START===';`,
       `if [ -f ${lockFile} ]; then cat ${lockFile}; else echo '__NO_LOCK__'; fi;`,
       `echo '===LOCK_END===';`,
-      // 2. Read last 50 lines of log file
       `echo '===LOG_START===';`,
       `if [ -f ${logFile} ]; then tail -n 50 ${logFile}; else echo '__NO_LOG__'; fi;`,
       `echo '===LOG_END===';`,
-      // 3. Check if screen session is alive
       `echo '===SCREEN_START===';`,
       `screen -ls 2>/dev/null | grep thirst-ingest || echo '__NO_SCREEN__';`,
       `echo '===SCREEN_END===';`,
-      `"`,
     ].join(' ');
 
-    console.log('[Admin Ingestion API] Checking ingestion status via SSH...');
+    const statusCommand = isLocal
+      ? `bash -c '${statusScript}'`
+      : `${sshBase} "${statusScript}"`;
+
+    console.log(`[Admin Ingestion API] Checking ingestion status ${isLocal ? 'locally' : 'via SSH'}...`);
 
     const statusResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
