@@ -2,9 +2,10 @@
  * Admin Ingestion API Route
  * Provides monitoring, dry-run checks, and remote ingestion trigger for Texas.gov data.
  *
- * GET  /api/admin/ingestion  - Returns data freshness info and API status
- * POST /api/admin/ingestion  - Dry-run check: what new data is available from the Texas API
- * PUT  /api/admin/ingestion  - Trigger ingestion: SSH into server and run the ingestion script
+ * GET    /api/admin/ingestion  - Returns data freshness info and API status
+ * POST   /api/admin/ingestion  - Dry-run check: what new data is available from the Texas API
+ * PUT    /api/admin/ingestion  - Trigger ingestion: fire-and-forget via detached screen session over SSH
+ * DELETE /api/admin/ingestion  - Check ingestion status: lock file, log tail, and screen session
  */
 
 import { NextResponse } from 'next/server';
@@ -335,7 +336,7 @@ export async function POST() {
 }
 
 // ---------------------------------------------------------------------------
-// PUT handler - Trigger ingestion via SSH
+// PUT handler - Trigger ingestion via detached screen session (fire-and-forget)
 // ---------------------------------------------------------------------------
 
 export async function PUT() {
@@ -346,84 +347,196 @@ export async function PUT() {
       return NextResponse.json({ error: adminError }, { status });
     }
 
-    // Use Node.js child_process to SSH into the production server and run ingestion
     const { exec } = await import('child_process');
+    const sshBase = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
+    const lockFile = `${APP_PATH}/data/.ingestion-lock.json`;
+    const logFile = `${APP_PATH}/data/.ingestion-log.txt`;
 
-    const sshCommand = [
-      `ssh -i ${SSH_KEY_PATH}`,
-      `-o StrictHostKeyChecking=no`,
-      `-o ConnectTimeout=10`,
-      `${SSH_USER}@${SSH_HOST}`,
-      `'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && cd ${APP_PATH} && npx tsx scripts/ingest-beverage-receipts.ts 2>&1'`,
-    ].join(' ');
+    // Step 1: Check if a lock file already exists (ingestion already running)
+    const checkLockResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
+      exec(
+        `${sshBase} "test -f ${lockFile} && cat ${lockFile} || echo '__NO_LOCK__'"`,
+        { timeout: 30_000 },
+        (error, stdout, stderr) => resolve({ stdout: stdout || '', stderr: stderr || '', error })
+      );
+    });
 
-    console.log('[Admin Ingestion API] Starting remote ingestion via SSH...');
-    console.log('[Admin Ingestion API] Command:', sshCommand);
+    if (checkLockResult.error) {
+      console.error('[Admin Ingestion API] SSH lock check failed:', checkLockResult.error.message);
+      return NextResponse.json(
+        { error: `SSH connection failed: ${checkLockResult.error.message}` },
+        { status: 502 }
+      );
+    }
 
-    return new Promise<Response>((resolve) => {
-      // Set a generous timeout — ingestion can take several minutes
-      const childProcess = exec(sshCommand, {
-        timeout: 10 * 60 * 1000, // 10 minutes
-        maxBuffer: 10 * 1024 * 1024, // 10MB output buffer
-      }, (error, stdout, stderr) => {
-        if (error) {
-          console.error('[Admin Ingestion API] SSH exec error:', error.message);
-          console.error('[Admin Ingestion API] stderr:', stderr);
-          console.error('[Admin Ingestion API] stdout:', stdout);
-
-          // Check if it's a timeout
-          if (error.killed) {
-            resolve(NextResponse.json({
-              success: false,
-              message: 'Ingestion timed out after 10 minutes. It may still be running on the server.',
-              output: stdout ? stdout.substring(stdout.length - 2000) : '',
-              error: 'Process timed out',
-            }, { status: 504 }));
-            return;
-          }
-
-          resolve(NextResponse.json({
-            success: false,
-            message: `Ingestion failed: ${error.message}`,
-            output: stdout || '',
-            error: stderr || error.message,
-          }, { status: 500 }));
-          return;
-        }
-
-        // Parse the output for summary stats
-        const output = stdout || '';
-        const addedMatch = output.match(/Added:\s*(\d[\d,]*)/);
-        const modifiedMatch = output.match(/Modified:\s*(\d[\d,]*)/);
-        const fetchedMatch = output.match(/Fetched:\s*(\d[\d,]*)/);
-        const errorMatch = output.match(/Errors:\s*(\d[\d,]*)/);
-
-        const summary = {
-          added: addedMatch ? addedMatch[1] : '0',
-          modified: modifiedMatch ? modifiedMatch[1] : '0',
-          fetched: fetchedMatch ? fetchedMatch[1] : 'unknown',
-          errors: errorMatch ? errorMatch[1] : '0',
-        };
-
-        console.log('[Admin Ingestion API] Ingestion complete:', summary);
-
-        resolve(NextResponse.json({
-          success: true,
-          message: `Ingestion complete. Added: ${summary.added}, Modified: ${summary.modified}`,
-          summary,
-          output: output.substring(output.length - 3000), // Last 3000 chars of output
-        }));
-      });
-
-      // Log process PID for debugging
-      if (childProcess.pid) {
-        console.log('[Admin Ingestion API] SSH process PID:', childProcess.pid);
+    const lockOutput = checkLockResult.stdout.trim();
+    if (lockOutput !== '__NO_LOCK__') {
+      // Lock file exists — ingestion is already running
+      let lockInfo: { startedAt?: string; pid?: string } = {};
+      try {
+        lockInfo = JSON.parse(lockOutput);
+      } catch {
+        // Lock file exists but isn't valid JSON — still treat as locked
       }
+      return NextResponse.json(
+        {
+          error: 'Ingestion is already running',
+          startedAt: lockInfo.startedAt || 'unknown',
+          pid: lockInfo.pid || 'unknown',
+        },
+        { status: 409 }
+      );
+    }
+
+    // Step 2: Launch ingestion in a detached screen session
+    // The screen command will:
+    //   a. Create the lock file with timestamp and PID
+    //   b. Run the ingestion script, capturing output to a log file
+    //   c. Delete the lock file when done (via trap, so it runs on success or failure)
+    // Build the remote bash script that runs inside screen.
+    // We use a heredoc-style approach: SSH sends a single-quoted command to screen,
+    // and screen runs it via bash -c.
+    // To avoid nested quote hell, we build the lock-file JSON with printf.
+    const remoteScript = [
+      `trap 'rm -f ${lockFile}' EXIT`,
+      `printf '{\\\\n  "startedAt": "%s",\\\\n  "pid": "%s"\\\\n}\\\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$" > ${lockFile}`,
+      `export NVM_DIR="$HOME/.nvm"`,
+      `[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`,
+      `cd ${APP_PATH}`,
+      `npx tsx scripts/ingest-beverage-receipts.ts 2>&1 | tee ${logFile}`,
+    ].join(' ; ');
+
+    // SSH wraps in double quotes; screen uses single quotes around the bash -c argument
+    const screenCommand = `${sshBase} "screen -dmS thirst-ingest bash -c '${remoteScript}'"`;
+
+    console.log('[Admin Ingestion API] Launching detached screen session via SSH...');
+
+    const launchResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
+      exec(
+        screenCommand,
+        { timeout: 30_000 },
+        (error, stdout, stderr) => resolve({ stdout: stdout || '', stderr: stderr || '', error })
+      );
+    });
+
+    if (launchResult.error) {
+      console.error('[Admin Ingestion API] SSH screen launch failed:', launchResult.error.message);
+      console.error('[Admin Ingestion API] stderr:', launchResult.stderr);
+      return NextResponse.json(
+        { error: `Failed to start ingestion: ${launchResult.error.message}` },
+        { status: 500 }
+      );
+    }
+
+    console.log('[Admin Ingestion API] Screen session launched successfully');
+
+    return NextResponse.json({
+      success: true,
+      message: 'Ingestion started in background screen session. Use status check to monitor progress.',
+      status: 'started',
     });
   } catch (error: any) {
     console.error('[Admin Ingestion API] PUT error:', error?.message ?? error);
     return NextResponse.json(
       { error: error?.message || 'Failed to trigger ingestion' },
+      { status: 500 }
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE handler - Check ingestion status (lock file, log tail, screen session)
+// ---------------------------------------------------------------------------
+
+export async function DELETE() {
+  try {
+    const supabase = await createServerClient();
+    const { user, error: adminError, status } = await verifyAdmin(supabase);
+    if (adminError || !user) {
+      return NextResponse.json({ error: adminError }, { status });
+    }
+
+    const { exec } = await import('child_process');
+    const sshBase = `ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST}`;
+    const lockFile = `${APP_PATH}/data/.ingestion-lock.json`;
+    const logFile = `${APP_PATH}/data/.ingestion-log.txt`;
+
+    // Run all status checks in a single SSH call to avoid multiple connections
+    const statusCommand = [
+      sshBase,
+      `"`,
+      // 1. Check lock file
+      `echo '===LOCK_START===';`,
+      `if [ -f ${lockFile} ]; then cat ${lockFile}; else echo '__NO_LOCK__'; fi;`,
+      `echo '===LOCK_END===';`,
+      // 2. Read last 50 lines of log file
+      `echo '===LOG_START===';`,
+      `if [ -f ${logFile} ]; then tail -n 50 ${logFile}; else echo '__NO_LOG__'; fi;`,
+      `echo '===LOG_END===';`,
+      // 3. Check if screen session is alive
+      `echo '===SCREEN_START===';`,
+      `screen -ls 2>/dev/null | grep thirst-ingest || echo '__NO_SCREEN__';`,
+      `echo '===SCREEN_END===';`,
+      `"`,
+    ].join(' ');
+
+    console.log('[Admin Ingestion API] Checking ingestion status via SSH...');
+
+    const statusResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
+      exec(
+        statusCommand,
+        { timeout: 15_000, maxBuffer: 1024 * 1024 },
+        (error, stdout, stderr) => resolve({ stdout: stdout || '', stderr: stderr || '', error })
+      );
+    });
+
+    if (statusResult.error) {
+      console.error('[Admin Ingestion API] SSH status check failed:', statusResult.error.message);
+      return NextResponse.json(
+        { error: `SSH connection failed: ${statusResult.error.message}` },
+        { status: 502 }
+      );
+    }
+
+    const output = statusResult.stdout;
+
+    // Parse lock file section
+    const lockMatch = output.match(/===LOCK_START===\s*([\s\S]*?)\s*===LOCK_END===/);
+    const lockContent = lockMatch ? lockMatch[1].trim() : '__NO_LOCK__';
+    let running = false;
+    let startedAt: string | null = null;
+
+    if (lockContent !== '__NO_LOCK__') {
+      running = true;
+      try {
+        const lockInfo = JSON.parse(lockContent);
+        startedAt = lockInfo.startedAt || null;
+      } catch {
+        // Lock file exists but isn't valid JSON
+        startedAt = 'unknown';
+      }
+    }
+
+    // Parse log file section
+    const logMatch = output.match(/===LOG_START===\s*([\s\S]*?)\s*===LOG_END===/);
+    const logContent = logMatch ? logMatch[1].trim() : '';
+    const logOutput = logContent === '__NO_LOG__' ? '' : logContent;
+
+    // Parse screen session section
+    const screenMatch = output.match(/===SCREEN_START===\s*([\s\S]*?)\s*===SCREEN_END===/);
+    const screenContent = screenMatch ? screenMatch[1].trim() : '__NO_SCREEN__';
+    const screenActive = screenContent !== '__NO_SCREEN__';
+
+    return NextResponse.json({
+      running,
+      output: logOutput,
+      startedAt,
+      screenActive,
+    });
+  } catch (error: any) {
+    console.error('[Admin Ingestion API] DELETE error:', error?.message ?? error);
+    return NextResponse.json(
+      { error: error?.message || 'Failed to check ingestion status' },
       { status: 500 }
     );
   }

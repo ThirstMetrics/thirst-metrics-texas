@@ -166,6 +166,13 @@ export default function AdminClient() {
     output?: string;
     error?: string;
   } | null>(null);
+  const [ingestionStatus, setIngestionStatus] = useState<{
+    running: boolean;
+    output: string;
+    startedAt: string | null;
+    screenActive: boolean;
+  } | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track which tabs have been fetched (lazy loading + caching)
   const fetchedRef = useRef<Record<string, boolean>>({ overview: false, users: false, ingestion: false });
@@ -325,30 +332,120 @@ export default function AdminClient() {
   }, []);
 
   // ----------------------------------------
-  // Run ingestion via SSH
+  // Ingestion status polling
+  // ----------------------------------------
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const pollIngestionStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/ingestion', { method: 'DELETE' });
+      if (!res.ok) return;
+      const status = await res.json();
+      setIngestionStatus(status);
+
+      // If not running and screen not active, ingestion is done
+      if (!status.running && !status.screenActive) {
+        stopPolling();
+        setIngestionRunning(false);
+        // Parse the log output for summary stats
+        const output = status.output || '';
+        const addedMatch = output.match(/Added:\s*(\d[\d,]*)/);
+        const modifiedMatch = output.match(/Modified:\s*(\d[\d,]*)/);
+        const fetchedMatch = output.match(/Fetched:\s*(\d[\d,]*)/);
+        const errorMatch = output.match(/Errors:\s*(\d[\d,]*)/);
+        const hasComplete = output.includes('INGESTION COMPLETE');
+
+        if (hasComplete || addedMatch) {
+          setIngestionResult({
+            success: true,
+            message: `Ingestion complete. Added: ${addedMatch?.[1] || '0'}, Modified: ${modifiedMatch?.[1] || '0'}`,
+            summary: {
+              added: addedMatch?.[1] || '0',
+              modified: modifiedMatch?.[1] || '0',
+              fetched: fetchedMatch?.[1] || 'unknown',
+              errors: errorMatch?.[1] || '0',
+            },
+          });
+        } else if (output.includes('Fatal') || output.includes('ERROR LIMIT') || output.includes('ABORT')) {
+          setIngestionResult({
+            success: false,
+            message: 'Ingestion failed. Check log output for details.',
+            output: output.substring(output.length - 500),
+            error: 'Process exited with errors',
+          });
+        }
+        // Invalidate cached data so it refreshes
+        fetchedRef.current.ingestion = false;
+      }
+    } catch {
+      // Silently ignore polling errors — will retry on next interval
+    }
+  }, [stopPolling]);
+
+  const startPolling = useCallback(() => {
+    stopPolling();
+    // Poll immediately, then every 5 seconds
+    pollIngestionStatus();
+    pollingRef.current = setInterval(pollIngestionStatus, 5000);
+  }, [stopPolling, pollIngestionStatus]);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => stopPolling();
+  }, [stopPolling]);
+
+  // ----------------------------------------
+  // Run ingestion via SSH (fire-and-forget)
   // ----------------------------------------
 
   const handleRunIngestion = useCallback(async () => {
     setIngestionRunning(true);
     setIngestionResult(null);
+    setIngestionStatus(null);
     try {
       const res = await fetch('/api/admin/ingestion', { method: 'PUT' });
       const result = await res.json();
-      setIngestionResult(result);
-      // After successful ingestion, invalidate cached data so it refreshes
-      if (result.success) {
-        fetchedRef.current.ingestion = false;
+
+      if (res.status === 409) {
+        // Already running
+        setIngestionResult({
+          success: false,
+          message: `Ingestion is already running (started ${result.startedAt || 'unknown'})`,
+          error: 'Already running',
+        });
+        setIngestionRunning(false);
+        // Start polling to track the existing run
+        startPolling();
+        return;
       }
+
+      if (!res.ok) {
+        setIngestionResult({
+          success: false,
+          message: result.error || 'Failed to start ingestion',
+          error: result.error || 'Unknown error',
+        });
+        setIngestionRunning(false);
+        return;
+      }
+
+      // Successfully started — begin polling for status
+      startPolling();
     } catch (err) {
       setIngestionResult({
         success: false,
         message: err instanceof Error ? err.message : 'Ingestion request failed',
         error: 'Network error',
       });
-    } finally {
       setIngestionRunning(false);
     }
-  }, []);
+  }, [startPolling]);
 
   // ----------------------------------------
   // Users: sorting
@@ -932,10 +1029,10 @@ export default function AdminClient() {
         <div style={s.card}>
           <h3 style={s.cardTitle}>Run Ingestion</h3>
           <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px 0' }}>
-            Remotely trigger the ingestion script on the production server. This will fetch new records from the Texas.gov API and insert them into the database.
+            Remotely trigger the ingestion script on the production server via a background screen session. This will fetch new records from the Texas.gov API and insert them into the database.
           </p>
           <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 16px 0' }}>
-            Note: This process can take several minutes depending on how many new records are available. The page will update when complete.
+            The process runs in a detached screen session and survives connection drops. Status updates every 5 seconds.
           </p>
           <button
             onClick={handleRunIngestion}
@@ -963,8 +1060,59 @@ export default function AdminClient() {
             ) : 'Run Ingestion'}
           </button>
 
-          {/* Ingestion Result */}
-          {ingestionResult && (
+          {/* Live Status (while running) */}
+          {ingestionRunning && ingestionStatus && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid #93c5fd',
+              background: '#eff6ff',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{
+                    display: 'inline-block',
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '50%',
+                    background: ingestionStatus.screenActive ? '#22c55e' : '#f59e0b',
+                    animation: ingestionStatus.screenActive ? 'pulse 2s infinite' : 'none',
+                  }} />
+                  <span style={{ fontWeight: 600, fontSize: '14px', color: '#1e40af' }}>
+                    {ingestionStatus.screenActive ? 'Ingestion Running' : 'Finishing up...'}
+                  </span>
+                </div>
+                {ingestionStatus.startedAt && (
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>
+                    Started: {formatDateTime(ingestionStatus.startedAt)}
+                  </span>
+                )}
+              </div>
+
+              {/* Live log output */}
+              {ingestionStatus.output && (
+                <div style={{
+                  background: '#1e293b',
+                  borderRadius: '6px',
+                  padding: '12px',
+                  maxHeight: '240px',
+                  overflow: 'auto',
+                  fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                  fontSize: '11px',
+                  lineHeight: 1.5,
+                  color: '#e2e8f0',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}>
+                  {ingestionStatus.output}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Ingestion Result (when complete) */}
+          {!ingestionRunning && ingestionResult && (
             <div style={{
               marginTop: '16px',
               padding: '16px',
@@ -1178,7 +1326,10 @@ export default function AdminClient() {
   return (
     <div style={s.container}>
       {/* Spin keyframes (injected once) */}
-      <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `}</style>
 
       {renderTabs()}
       <div style={s.tabContent}>
