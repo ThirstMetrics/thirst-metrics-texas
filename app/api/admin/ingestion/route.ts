@@ -1,12 +1,10 @@
 /**
  * Admin Ingestion API Route
- * Provides monitoring and dry-run checks for Texas.gov mixed beverage data ingestion.
+ * Provides monitoring, dry-run checks, and remote ingestion trigger for Texas.gov data.
  *
  * GET  /api/admin/ingestion  - Returns data freshness info and API status
  * POST /api/admin/ingestion  - Dry-run check: what new data is available from the Texas API
- *
- * IMPORTANT: DuckDB is opened READ_ONLY in the web app. Actual ingestion must be
- * performed via SSH using: npx tsx scripts/ingest-beverage-receipts.ts
+ * PUT  /api/admin/ingestion  - Trigger ingestion: SSH into server and run the ingestion script
  */
 
 import { NextResponse } from 'next/server';
@@ -16,6 +14,12 @@ import { query } from '@/lib/duckdb/connection';
 export const dynamic = 'force-dynamic';
 
 const TEXAS_API_URL = 'https://data.texas.gov/resource/naix-2893.json';
+
+// SSH connection details for production server
+const SSH_HOST = '167.71.242.157';
+const SSH_USER = 'master_nrbudqgaus';
+const SSH_KEY_PATH = process.env.SSH_KEY_PATH || '~/.ssh/id_ed25519';
+const APP_PATH = '~/applications/gnhezcjyuk/public_html';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -185,37 +189,37 @@ export async function POST() {
       existingMonths = new Set(monthsResult.map((r) => r.month));
     } catch (dbError: any) {
       console.error('[Admin Ingestion API] DuckDB query error:', dbError?.message ?? dbError);
-      // Continue - we can still check the API even if DuckDB fails
     }
 
-    // Fetch the most recent 100 records from the Texas API
+    // Fetch the most recent records from the Texas API to discover new months
     let latestInApi: string | null = null;
     let newMonthsAvailable: string[] = [];
     let estimatedNewRecords = 0;
     let sampleRecords: { permit: string; name: string; date: string; total: number }[] = [];
 
     try {
-      const apiUrl = new URL(TEXAS_API_URL);
-      apiUrl.searchParams.set('$limit', '100');
-      apiUrl.searchParams.set('$order', 'obligation_end_date_yyyymmdd DESC');
+      // Step 1: Fetch latest 100 records to discover what months are available
+      const discoveryUrl = new URL(TEXAS_API_URL);
+      discoveryUrl.searchParams.set('$limit', '100');
+      discoveryUrl.searchParams.set('$order', 'obligation_end_date_yyyymmdd DESC');
 
-      const apiResponse = await fetch(apiUrl.toString());
-      if (!apiResponse.ok) {
-        throw new Error(`Texas API returned ${apiResponse.status} ${apiResponse.statusText}`);
+      const discoveryResponse = await fetch(discoveryUrl.toString());
+      if (!discoveryResponse.ok) {
+        throw new Error(`Texas API returned ${discoveryResponse.status} ${discoveryResponse.statusText}`);
       }
 
-      const apiRecords: any[] = await apiResponse.json();
+      const discoveryRecords: any[] = await discoveryResponse.json();
 
-      if (apiRecords.length > 0) {
+      if (discoveryRecords.length > 0) {
         // Find the latest date in API results
-        const firstDateStr = apiRecords[0].obligation_end_date_yyyymmdd;
+        const firstDateStr = discoveryRecords[0].obligation_end_date_yyyymmdd;
         if (firstDateStr) {
           latestInApi = formatDateFromApi(firstDateStr);
         }
 
         // Collect all unique months from API results
         const apiMonths = new Set<string>();
-        for (const record of apiRecords) {
+        for (const record of discoveryRecords) {
           const dateStr = record.obligation_end_date_yyyymmdd;
           if (dateStr) {
             const formatted = formatDateFromApi(dateStr);
@@ -223,12 +227,9 @@ export async function POST() {
           }
         }
 
-        // Determine which months in the API are not yet in DuckDB
-        // existingMonths contains full timestamp strings from DuckDB, so we need to
-        // normalize them to YYYY-MM for comparison
+        // Normalize existing DB months to YYYY-MM for comparison
         const existingYearMonths = new Set<string>();
         for (const m of existingMonths) {
-          // DuckDB DATE_TRUNC returns strings like "2026-01-01" or "2026-01-01 00:00:00"
           existingYearMonths.add(m.substring(0, 7));
         }
 
@@ -237,34 +238,59 @@ export async function POST() {
           .sort()
           .reverse();
 
-        // Filter API records that belong to new months for sample/estimation
-        const newRecords = apiRecords.filter((record) => {
-          const dateStr = record.obligation_end_date_yyyymmdd;
-          if (!dateStr) return false;
-          const formatted = formatDateFromApi(dateStr);
-          return newMonthsAvailable.includes(toYearMonth(formatted));
-        });
-
-        estimatedNewRecords = newRecords.length;
-
-        // If there are new months, estimate based on typical monthly volume (~23k/month)
-        if (newMonthsAvailable.length > 0 && estimatedNewRecords < 100) {
-          // The 100-record sample likely does not cover all new records.
-          // Estimate roughly 23,000 per new month (typical Texas volume).
+        // Estimate new records (~23k per month typical for Texas)
+        if (newMonthsAvailable.length > 0) {
           estimatedNewRecords = newMonthsAvailable.length * 23000;
         }
 
-        // Build sample preview from the first 5 new records (or first 5 overall if no new months)
-        const previewSource = newRecords.length > 0 ? newRecords : apiRecords;
-        sampleRecords = previewSource.slice(0, 5).map((record) => {
-          const dateStr = record.obligation_end_date_yyyymmdd;
-          return {
-            permit: record.tabc_permit_number || '',
-            name: record.location_name || '',
-            date: dateStr ? formatDateFromApi(dateStr) : '',
-            total: parseFloat(record.total_receipts) || 0,
-          };
-        });
+        // Step 2: Fetch the highest-revenue sample records from new data
+        // This gives the admin a meaningful preview of real data that arrived
+        const sampleUrl = new URL(TEXAS_API_URL);
+        sampleUrl.searchParams.set('$limit', '5');
+        sampleUrl.searchParams.set('$order', 'total_receipts DESC');
+
+        // Filter for records after the latest DB date with actual revenue
+        if (latestInDb) {
+          const latestDbFormatted = latestInDb.substring(0, 10);
+          sampleUrl.searchParams.set(
+            '$where',
+            `obligation_end_date_yyyymmdd > '${latestDbFormatted}T00:00:00.000' AND total_receipts > 0`
+          );
+        } else {
+          sampleUrl.searchParams.set('$where', 'total_receipts > 0');
+        }
+
+        try {
+          const sampleResponse = await fetch(sampleUrl.toString());
+          if (sampleResponse.ok) {
+            const sampleData: any[] = await sampleResponse.json();
+            sampleRecords = sampleData.map((record) => {
+              const dateStr = record.obligation_end_date_yyyymmdd;
+              return {
+                permit: record.tabc_permit_number || '',
+                name: record.location_name || '',
+                date: dateStr ? formatDateFromApi(dateStr) : '',
+                total: parseFloat(record.total_receipts) || 0,
+              };
+            });
+          }
+        } catch (sampleErr: any) {
+          console.error('[Admin Ingestion API] Sample query error:', sampleErr?.message ?? sampleErr);
+          // Fallback: sort the discovery records by total_receipts DESC
+          const sorted = [...discoveryRecords]
+            .filter((r) => parseFloat(r.total_receipts) > 0)
+            .sort((a, b) => (parseFloat(b.total_receipts) || 0) - (parseFloat(a.total_receipts) || 0))
+            .slice(0, 5);
+          sampleRecords = sorted.map((record) => {
+            const dateStr = record.obligation_end_date_yyyymmdd;
+            return {
+              permit: record.tabc_permit_number || '',
+              name: record.location_name || '',
+              date: dateStr ? formatDateFromApi(dateStr) : '',
+              total: parseFloat(record.total_receipts) || 0,
+            };
+          });
+        }
       }
     } catch (apiError: any) {
       console.error('[Admin Ingestion API] Texas API error:', apiError?.message ?? apiError);
@@ -276,7 +302,6 @@ export async function POST() {
           estimatedNewRecords: 0,
           sampleRecords: [],
           message: `Unable to reach the Texas API: ${apiError?.message || 'Unknown error'}`,
-          instructions: 'To ingest new data, SSH into the server and run: npx tsx scripts/ingest-beverage-receipts.ts',
         },
         { status: 502 }
       );
@@ -299,12 +324,106 @@ export async function POST() {
       estimatedNewRecords,
       sampleRecords,
       message,
-      instructions: 'To ingest new data, SSH into the server and run: npx tsx scripts/ingest-beverage-receipts.ts',
     });
   } catch (error: any) {
     console.error('[Admin Ingestion API] POST error:', error?.message ?? error);
     return NextResponse.json(
       { error: error?.message || 'Failed to check for new data' },
+      { status: 500 }
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PUT handler - Trigger ingestion via SSH
+// ---------------------------------------------------------------------------
+
+export async function PUT() {
+  try {
+    const supabase = await createServerClient();
+    const { user, error: adminError, status } = await verifyAdmin(supabase);
+    if (adminError || !user) {
+      return NextResponse.json({ error: adminError }, { status });
+    }
+
+    // Use Node.js child_process to SSH into the production server and run ingestion
+    const { exec } = await import('child_process');
+
+    const sshCommand = [
+      `ssh -i ${SSH_KEY_PATH}`,
+      `-o StrictHostKeyChecking=no`,
+      `-o ConnectTimeout=10`,
+      `${SSH_USER}@${SSH_HOST}`,
+      `'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && cd ${APP_PATH} && npx tsx scripts/ingest-beverage-receipts.ts 2>&1'`,
+    ].join(' ');
+
+    console.log('[Admin Ingestion API] Starting remote ingestion via SSH...');
+    console.log('[Admin Ingestion API] Command:', sshCommand);
+
+    return new Promise<Response>((resolve) => {
+      // Set a generous timeout — ingestion can take several minutes
+      const childProcess = exec(sshCommand, {
+        timeout: 10 * 60 * 1000, // 10 minutes
+        maxBuffer: 10 * 1024 * 1024, // 10MB output buffer
+      }, (error, stdout, stderr) => {
+        if (error) {
+          console.error('[Admin Ingestion API] SSH exec error:', error.message);
+          console.error('[Admin Ingestion API] stderr:', stderr);
+          console.error('[Admin Ingestion API] stdout:', stdout);
+
+          // Check if it's a timeout
+          if (error.killed) {
+            resolve(NextResponse.json({
+              success: false,
+              message: 'Ingestion timed out after 10 minutes. It may still be running on the server.',
+              output: stdout ? stdout.substring(stdout.length - 2000) : '',
+              error: 'Process timed out',
+            }, { status: 504 }));
+            return;
+          }
+
+          resolve(NextResponse.json({
+            success: false,
+            message: `Ingestion failed: ${error.message}`,
+            output: stdout || '',
+            error: stderr || error.message,
+          }, { status: 500 }));
+          return;
+        }
+
+        // Parse the output for summary stats
+        const output = stdout || '';
+        const addedMatch = output.match(/Added:\s*(\d[\d,]*)/);
+        const modifiedMatch = output.match(/Modified:\s*(\d[\d,]*)/);
+        const fetchedMatch = output.match(/Fetched:\s*(\d[\d,]*)/);
+        const errorMatch = output.match(/Errors:\s*(\d[\d,]*)/);
+
+        const summary = {
+          added: addedMatch ? addedMatch[1] : '0',
+          modified: modifiedMatch ? modifiedMatch[1] : '0',
+          fetched: fetchedMatch ? fetchedMatch[1] : 'unknown',
+          errors: errorMatch ? errorMatch[1] : '0',
+        };
+
+        console.log('[Admin Ingestion API] Ingestion complete:', summary);
+
+        resolve(NextResponse.json({
+          success: true,
+          message: `Ingestion complete. Added: ${summary.added}, Modified: ${summary.modified}`,
+          summary,
+          output: output.substring(output.length - 3000), // Last 3000 chars of output
+        }));
+      });
+
+      // Log process PID for debugging
+      if (childProcess.pid) {
+        console.log('[Admin Ingestion API] SSH process PID:', childProcess.pid);
+      }
+    });
+  } catch (error: any) {
+    console.error('[Admin Ingestion API] PUT error:', error?.message ?? error);
+    return NextResponse.json(
+      { error: error?.message || 'Failed to trigger ingestion' },
       { status: 500 }
     );
   }

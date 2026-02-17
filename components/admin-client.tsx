@@ -105,10 +105,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'activity', label: 'Activity Analytics' },
 ];
 
-const SSH_INSTRUCTIONS = `ssh -i ~/.ssh/id_ed25519 master_nrbudqgaus@167.71.242.157
-cd ~/applications/gnhezcjyuk/public_html
-npx tsx scripts/ingest-beverage-receipts.ts`;
-
 // ============================================
 // Helpers
 // ============================================
@@ -162,6 +158,14 @@ export default function AdminClient() {
   const [ingestionCheckLoading, setIngestionCheckLoading] = useState(false);
   const [roleUpdateLoading, setRoleUpdateLoading] = useState<string | null>(null);
   const [roleUpdateError, setRoleUpdateError] = useState<string | null>(null);
+  const [ingestionRunning, setIngestionRunning] = useState(false);
+  const [ingestionResult, setIngestionResult] = useState<{
+    success: boolean;
+    message: string;
+    summary?: { added: string; modified: string; fetched: string; errors: string };
+    output?: string;
+    error?: string;
+  } | null>(null);
 
   // Track which tabs have been fetched (lazy loading + caching)
   const fetchedRef = useRef<Record<string, boolean>>({ overview: false, users: false, ingestion: false });
@@ -317,6 +321,32 @@ export default function AdminClient() {
       setError(err instanceof Error ? err.message : 'Check failed');
     } finally {
       setIngestionCheckLoading(false);
+    }
+  }, []);
+
+  // ----------------------------------------
+  // Run ingestion via SSH
+  // ----------------------------------------
+
+  const handleRunIngestion = useCallback(async () => {
+    setIngestionRunning(true);
+    setIngestionResult(null);
+    try {
+      const res = await fetch('/api/admin/ingestion', { method: 'PUT' });
+      const result = await res.json();
+      setIngestionResult(result);
+      // After successful ingestion, invalidate cached data so it refreshes
+      if (result.success) {
+        fetchedRef.current.ingestion = false;
+      }
+    } catch (err) {
+      setIngestionResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Ingestion request failed',
+        error: 'Network error',
+      });
+    } finally {
+      setIngestionRunning(false);
     }
   }, []);
 
@@ -886,11 +916,11 @@ export default function AdminClient() {
                 </div>
               )}
 
-              {/* Instructions message */}
-              {ingestionCheck.instructions && (
+              {/* Status message */}
+              {ingestionCheck.message && (
                 <div style={s.instructionsBanner}>
                   <span style={{ fontSize: '14px', color: '#1e293b' }}>
-                    {ingestionCheck.instructions}
+                    {ingestionCheck.message}
                   </span>
                 </div>
               )}
@@ -898,15 +928,116 @@ export default function AdminClient() {
           )}
         </div>
 
-        {/* SSH Ingestion Instructions */}
+        {/* Run Ingestion */}
         <div style={s.card}>
-          <h3 style={s.cardTitle}>Ingestion Instructions</h3>
-          <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px 0' }}>
-            To ingest new data, connect to the production server and run the ingestion script:
+          <h3 style={s.cardTitle}>Run Ingestion</h3>
+          <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px 0' }}>
+            Remotely trigger the ingestion script on the production server. This will fetch new records from the Texas.gov API and insert them into the database.
           </p>
-          <div style={s.codeBlock}>
-            <pre style={s.codeBlockPre}>{SSH_INSTRUCTIONS}</pre>
-          </div>
+          <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 16px 0' }}>
+            Note: This process can take several minutes depending on how many new records are available. The page will update when complete.
+          </p>
+          <button
+            onClick={handleRunIngestion}
+            disabled={ingestionRunning}
+            style={{
+              ...s.primaryButton,
+              background: ingestionRunning ? '#94a3b8' : '#0d7377',
+              opacity: ingestionRunning ? 0.8 : 1,
+              cursor: ingestionRunning ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {ingestionRunning ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{
+                  display: 'inline-block',
+                  width: '14px',
+                  height: '14px',
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  borderTop: '2px solid white',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                }} />
+                Running Ingestion...
+              </span>
+            ) : 'Run Ingestion'}
+          </button>
+
+          {/* Ingestion Result */}
+          {ingestionResult && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: `1px solid ${ingestionResult.success ? '#86efac' : '#fca5a5'}`,
+              background: ingestionResult.success ? '#f0fdf4' : '#fef2f2',
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '8px',
+              }}>
+                <span style={{ fontSize: '18px' }}>
+                  {ingestionResult.success ? '\u2705' : '\u274C'}
+                </span>
+                <span style={{
+                  fontWeight: 600,
+                  fontSize: '15px',
+                  color: ingestionResult.success ? '#166534' : '#991b1b',
+                }}>
+                  {ingestionResult.message}
+                </span>
+              </div>
+
+              {/* Summary stats */}
+              {ingestionResult.summary && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                  gap: '12px',
+                  marginTop: '12px',
+                }}>
+                  <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: BRAND.primary }}>{ingestionResult.summary.added}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Added</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#f59e0b' }}>{ingestionResult.summary.modified}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Modified</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#6b7280' }}>{ingestionResult.summary.fetched}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Fetched</div>
+                  </div>
+                  {ingestionResult.summary.errors !== '0' && (
+                    <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '20px', fontWeight: 700, color: '#ef4444' }}>{ingestionResult.summary.errors}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>Errors</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Error detail */}
+              {ingestionResult.error && !ingestionResult.success && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '10px',
+                  background: '#fff5f5',
+                  borderRadius: '6px',
+                  fontSize: '13px',
+                  fontFamily: 'monospace',
+                  color: '#991b1b',
+                  maxHeight: '120px',
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {ingestionResult.error}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
