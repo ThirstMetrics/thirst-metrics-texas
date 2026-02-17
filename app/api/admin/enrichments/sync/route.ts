@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServerClient, createServiceClient } from '@/lib/supabase/server';
-import { closeDuckDB } from '@/lib/duckdb/connection';
+// DuckDB lock conflict avoided: sync script writes to staging copy
 import { isProductionServer, APP_PATH } from '@/lib/server/exec-remote';
 
 export const dynamic = 'force-dynamic';
@@ -107,8 +107,7 @@ export async function POST() {
     }
 
     // Launch sync script in a detached screen session
-    // The sync script manages its own lock file — do NOT create one here.
-    // DuckDB lock is released via closeDuckDB() call before launching screen.
+    // Sync script writes to a staging copy of the DB to avoid lock conflicts.
     const remoteScript = [
       `export NVM_DIR="$HOME/.nvm"`,
       `[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`,
@@ -119,9 +118,6 @@ export async function POST() {
     const screenCommand = isLocal
       ? `screen -dmS thirst-enrich-sync bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-enrich-sync bash -c '${remoteScript}'"`;
-
-    // Release DuckDB file lock so the sync script can open it for WRITE
-    await closeDuckDB();
 
     console.log(`[Enrichment Sync API] Launching sync screen session ${isLocal ? 'locally' : 'via SSH'}...`);
 

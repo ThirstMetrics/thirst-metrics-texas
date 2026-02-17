@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServerClient, createServiceClient } from '@/lib/supabase/server';
-import { query, closeDuckDB } from '@/lib/duckdb/connection';
+import { query } from '@/lib/duckdb/connection';
 import { isProductionServer, APP_PATH } from '@/lib/server/exec-remote';
 
 export const dynamic = 'force-dynamic';
@@ -424,9 +424,9 @@ export async function PUT() {
     // We use a heredoc-style approach: SSH sends a single-quoted command to screen,
     // and screen runs it via bash -c.
     // To avoid nested quote hell, we build the lock-file JSON with printf.
-    // The ingestion script manages its own lock file — do NOT create one here
-    // (the bash shell PID would conflict with the script's lock check).
-    // DuckDB lock is released via closeDuckDB() call above before launching screen.
+    // The ingestion script manages its own lock file — do NOT create one here.
+    // Ingestion writes to a staging copy of the DuckDB file to avoid lock conflicts
+    // with the running Next.js server, then swaps it into production when done.
     const remoteScript = [
       `export NVM_DIR="$HOME/.nvm"`,
       `[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`,
@@ -438,9 +438,6 @@ export async function PUT() {
     const screenCommand = isLocal
       ? `screen -dmS thirst-ingest bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-ingest bash -c '${remoteScript}'"`;
-
-    // Release DuckDB file lock so the ingestion script can open it for WRITE
-    await closeDuckDB();
 
     console.log(`[Admin Ingestion API] Launching detached screen session ${isLocal ? 'locally' : 'via SSH'}...`);
 

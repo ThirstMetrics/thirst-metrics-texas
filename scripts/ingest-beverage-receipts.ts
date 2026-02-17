@@ -38,11 +38,19 @@ import { runQuery, closeConnection, closeDatabase } from './duckdb-helpers';
 
 const API_BASE_URL = process.env.TEXAS_API_BASE_URL || 'https://data.texas.gov/resource/naix-2893.json';
 const APP_TOKEN = process.env.TEXAS_APP_TOKEN || process.env.TEXAS_GOV_APP_TOKEN || '';
-const DUCKDB_PATH = process.env.DUCKDB_PATH
+
+// Resolve the production DuckDB path
+const DUCKDB_PRODUCTION_PATH = process.env.DUCKDB_PATH
   ? (path.isAbsolute(process.env.DUCKDB_PATH)
       ? process.env.DUCKDB_PATH
       : path.join(process.cwd(), process.env.DUCKDB_PATH))
   : path.join(process.cwd(), 'data', 'analytics.duckdb');
+
+// Write to a staging copy to avoid file lock conflicts with the Next.js server.
+// After successful ingestion, the staging file is swapped in for the production file.
+const DUCKDB_STAGING_PATH = DUCKDB_PRODUCTION_PATH.replace(/\.duckdb$/, '-staging.duckdb');
+const DUCKDB_PATH = DUCKDB_STAGING_PATH;
+
 const LOOKBACK_MONTHS = parseInt(process.env.INGEST_LOOKBACK_MONTHS || '37', 10);
 const BATCH_SIZE = parseInt(process.env.INGEST_BATCH_SIZE || '5000', 10);
 
@@ -534,6 +542,18 @@ async function ingestBeverageReceipts() {
   checkExistingLock();
   createLockFile();
 
+  // Copy production DB to staging so we write to a separate file
+  // (avoids file lock conflict with the running Next.js server)
+  if (fs.existsSync(DUCKDB_PRODUCTION_PATH)) {
+    console.log(chalk.cyan(`   Copying production DB to staging...`));
+    console.log(chalk.gray(`   From: ${DUCKDB_PRODUCTION_PATH}`));
+    console.log(chalk.gray(`   To:   ${DUCKDB_STAGING_PATH}`));
+    fs.copyFileSync(DUCKDB_PRODUCTION_PATH, DUCKDB_STAGING_PATH);
+    console.log(chalk.green(`   Staging copy created (${(fs.statSync(DUCKDB_STAGING_PATH).size / 1024 / 1024).toFixed(1)} MB)`));
+  } else {
+    console.log(chalk.yellow(`   Production DB not found, starting fresh: ${DUCKDB_PRODUCTION_PATH}`));
+  }
+
   // Load checkpoint or start fresh
   const checkpoint = loadCheckpoint();
 
@@ -774,6 +794,28 @@ async function ingestBeverageReceipts() {
   // Clean shutdown
   await closeConnection(conn);
   await closeDatabase(db);
+
+  // Swap staging DB into production
+  // The Next.js server holds the production file in READ_ONLY mode.
+  // We rename staging over production — the server's singleton will
+  // lazily reopen the new file on the next query.
+  console.log(chalk.cyan('\n   Swapping staging DB into production...'));
+  try {
+    const backupPath = DUCKDB_PRODUCTION_PATH + '.bak';
+    if (fs.existsSync(DUCKDB_PRODUCTION_PATH)) {
+      fs.renameSync(DUCKDB_PRODUCTION_PATH, backupPath);
+    }
+    fs.renameSync(DUCKDB_STAGING_PATH, DUCKDB_PRODUCTION_PATH);
+    // Clean up backup
+    if (fs.existsSync(backupPath)) {
+      fs.unlinkSync(backupPath);
+    }
+    console.log(chalk.green('   Swap complete — production DB updated.'));
+  } catch (swapErr) {
+    console.error(chalk.red(`   Swap failed: ${swapErr}`));
+    console.error(chalk.red(`   Staging file preserved at: ${DUCKDB_STAGING_PATH}`));
+    console.error(chalk.red(`   Manual swap may be needed.`));
+  }
 }
 
 // Run ingestion

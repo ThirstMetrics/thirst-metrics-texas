@@ -202,6 +202,7 @@ export default function AdminClient() {
     success: boolean;
     message: string;
     summary?: { added: string; modified: string; errors: string };
+    output?: string;
     error?: string;
   } | null>(null);
   const [backfillStatus, setBackfillStatus] = useState<{
@@ -388,7 +389,16 @@ export default function AdminClient() {
   const pollIngestionStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/ingestion', { method: 'DELETE' });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Server returned error — might be restarting
+        setIngestionStatus({
+          running: true,
+          output: 'Server is processing data... Waiting for response.',
+          startedAt: ingestionStatus?.startedAt || null,
+          screenActive: true,
+        });
+        return;
+      }
       const status = await res.json();
       setIngestionStatus(status);
 
@@ -422,14 +432,44 @@ export default function AdminClient() {
             output: output.substring(output.length - 500),
             error: 'Process exited with errors',
           });
+        } else if (output.includes('Next.js restarted') || output.includes('Next.js server restarted')) {
+          // Ingestion completed and server restarted — check log for results
+          if (output.includes('INGESTION COMPLETE') || addedMatch) {
+            setIngestionResult({
+              success: true,
+              message: `Ingestion complete. Added: ${addedMatch?.[1] || '0'}, Modified: ${modifiedMatch?.[1] || '0'}`,
+              summary: {
+                added: addedMatch?.[1] || '0',
+                modified: modifiedMatch?.[1] || '0',
+                fetched: fetchedMatch?.[1] || 'unknown',
+                errors: errorMatch?.[1] || '0',
+              },
+            });
+          } else {
+            // Log has restart message but no clear result — show the output
+            setIngestionResult({
+              success: !output.includes('Fatal') && !output.includes('ERROR'),
+              message: output.includes('Fatal') || output.includes('ERROR')
+                ? 'Ingestion encountered errors.'
+                : 'Ingestion finished. Server restarted.',
+              output: output.substring(Math.max(0, output.length - 500)),
+              error: output.includes('Fatal') ? 'Check log for details' : undefined,
+            });
+          }
         }
         // Invalidate cached data so it refreshes
         fetchedRef.current.ingestion = false;
       }
     } catch {
-      // Silently ignore polling errors — will retry on next interval
+      // Network error — server is likely down (being restarted during ingestion)
+      setIngestionStatus({
+        running: true,
+        output: 'Server is temporarily offline while processing data.\nIt will restart automatically when ingestion completes.\nThis page will reconnect and show results.',
+        startedAt: ingestionStatus?.startedAt || null,
+        screenActive: true,
+      });
     }
-  }, [stopPolling]);
+  }, [stopPolling, ingestionStatus?.startedAt]);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -527,7 +567,15 @@ export default function AdminClient() {
   const pollBackfillStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/backfill', { method: 'DELETE' });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setBackfillStatus({
+          running: true,
+          output: 'Server is processing data... Waiting for response.',
+          startedAt: backfillStatus?.startedAt || null,
+          screenActive: true,
+        });
+        return;
+      }
       const status = await res.json();
       setBackfillStatus(status);
 
@@ -556,15 +604,28 @@ export default function AdminClient() {
             message: 'Backfill failed. Check log output for details.',
             error: output.substring(output.length - 500),
           });
+        } else if (output.includes('Next.js restarted') || output.includes('Next.js server restarted')) {
+          setBackfillResult({
+            success: !output.includes('Fatal') && !output.includes('ERROR'),
+            message: output.includes('Fatal') ? 'Backfill encountered errors.' : 'Backfill finished. Server restarted.',
+            output: output.substring(Math.max(0, output.length - 500)),
+            error: output.includes('Fatal') ? 'Check log for details' : undefined,
+          });
         }
         // Refresh boundaries
         fetchBackfillBoundary();
         fetchedRef.current.ingestion = false;
       }
     } catch {
-      // silently ignore
+      // Network error — server is likely down during backfill
+      setBackfillStatus({
+        running: true,
+        output: 'Server is temporarily offline while processing data.\nIt will restart automatically when backfill completes.\nThis page will reconnect and show results.',
+        startedAt: backfillStatus?.startedAt || null,
+        screenActive: true,
+      });
     }
-  }, [stopBackfillPolling, fetchBackfillBoundary]);
+  }, [stopBackfillPolling, fetchBackfillBoundary, backfillStatus?.startedAt]);
 
   const startBackfillPolling = useCallback(() => {
     stopBackfillPolling();

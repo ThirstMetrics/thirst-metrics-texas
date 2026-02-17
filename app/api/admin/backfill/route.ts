@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, createServiceClient } from '@/lib/supabase/server';
-import { query, closeDuckDB } from '@/lib/duckdb/connection';
+import { query } from '@/lib/duckdb/connection';
 import { isProductionServer, APP_PATH } from '@/lib/server/exec-remote';
 
 export const dynamic = 'force-dynamic';
@@ -160,8 +160,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Launch backfill in a detached screen session
-    // The backfill script manages its own lock file — do NOT create one here.
-    // DuckDB lock is released via closeDuckDB() call before launching screen.
+    // Backfill writes to a staging copy of the DB to avoid lock conflicts.
     const remoteScript = [
       `export NVM_DIR="$HOME/.nvm"`,
       `[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`,
@@ -172,9 +171,6 @@ export async function POST(request: NextRequest) {
     const screenCommand = isLocal
       ? `screen -dmS thirst-backfill bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-backfill bash -c '${remoteScript}'"`;
-
-    // Release DuckDB file lock so the backfill script can open it for WRITE
-    await closeDuckDB();
 
     console.log(`[Admin Backfill API] Launching backfill screen session (${months} months) ${isLocal ? 'locally' : 'via SSH'}...`);
 

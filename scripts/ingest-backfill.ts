@@ -56,11 +56,16 @@ function parseMonthsArg(): number {
 
 const API_BASE_URL = process.env.TEXAS_API_BASE_URL || 'https://data.texas.gov/resource/naix-2893.json';
 const APP_TOKEN = process.env.TEXAS_APP_TOKEN || process.env.TEXAS_GOV_APP_TOKEN || '';
-const DUCKDB_PATH = process.env.DUCKDB_PATH
+// Resolve the production DuckDB path
+const DUCKDB_PRODUCTION_PATH = process.env.DUCKDB_PATH
   ? (path.isAbsolute(process.env.DUCKDB_PATH)
       ? process.env.DUCKDB_PATH
       : path.join(process.cwd(), process.env.DUCKDB_PATH))
   : path.join(process.cwd(), 'data', 'analytics.duckdb');
+
+// Write to a staging copy to avoid file lock conflicts with the Next.js server
+const DUCKDB_STAGING_PATH = DUCKDB_PRODUCTION_PATH.replace(/\.duckdb$/, '-staging.duckdb');
+const DUCKDB_PATH = DUCKDB_STAGING_PATH;
 const MONTHS_TO_FETCH = parseMonthsArg();
 const BATCH_SIZE = parseInt(process.env.INGEST_BATCH_SIZE || '5000', 10);
 
@@ -553,6 +558,13 @@ async function ingestBackfill() {
   checkExistingLock();
   createLockFile();
 
+  // Copy production DB to staging to avoid file lock conflict with Next.js
+  if (fs.existsSync(DUCKDB_PRODUCTION_PATH)) {
+    console.log(chalk.cyan(`   Copying production DB to staging...`));
+    fs.copyFileSync(DUCKDB_PRODUCTION_PATH, DUCKDB_STAGING_PATH);
+    console.log(chalk.green(`   Staging copy created (${(fs.statSync(DUCKDB_STAGING_PATH).size / 1024 / 1024).toFixed(1)} MB)`));
+  }
+
   // Load checkpoint or start fresh
   const checkpoint = loadCheckpoint();
 
@@ -852,6 +864,23 @@ async function ingestBackfill() {
   // Clean shutdown
   await closeConnection(conn);
   await closeDatabase(db);
+
+  // Swap staging DB into production
+  console.log(chalk.cyan('\n   Swapping staging DB into production...'));
+  try {
+    const backupPath = DUCKDB_PRODUCTION_PATH + '.bak';
+    if (fs.existsSync(DUCKDB_PRODUCTION_PATH)) {
+      fs.renameSync(DUCKDB_PRODUCTION_PATH, backupPath);
+    }
+    fs.renameSync(DUCKDB_STAGING_PATH, DUCKDB_PRODUCTION_PATH);
+    if (fs.existsSync(backupPath)) {
+      fs.unlinkSync(backupPath);
+    }
+    console.log(chalk.green('   Swap complete — production DB updated.'));
+  } catch (swapErr) {
+    console.error(chalk.red(`   Swap failed: ${swapErr}`));
+    console.error(chalk.red(`   Staging file preserved at: ${DUCKDB_STAGING_PATH}`));
+  }
 }
 
 // Run backfill
