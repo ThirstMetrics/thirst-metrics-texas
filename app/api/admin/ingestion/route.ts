@@ -50,10 +50,24 @@ async function verifyAdmin(supabase: Awaited<ReturnType<typeof createServerClien
 }
 
 /**
- * Parse a YYYYMMDD date string from the Texas API into YYYY-MM-DD format.
+ * Parse a date value from the Texas API into YYYY-MM-DD format.
+ * The API returns ISO timestamps like "2026-02-28T00:00:00.000"
+ * despite the field name suggesting YYYYMMDD format.
  */
 function formatDateFromApi(dateStr: string): string {
-  return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+  // Handle ISO timestamp format: "2026-02-28T00:00:00.000"
+  if (dateStr.includes('T') || dateStr.includes('-')) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split('T')[0]; // YYYY-MM-DD
+    }
+  }
+  // Fallback: YYYYMMDD format (e.g., "20260228")
+  if (/^\d{8}$/.test(dateStr)) {
+    return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+  }
+  // Last resort: return as-is
+  return dateStr;
 }
 
 /**
