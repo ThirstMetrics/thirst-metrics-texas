@@ -202,7 +202,7 @@ export default function AdminClient() {
   const [backfillResult, setBackfillResult] = useState<{
     success: boolean;
     message: string;
-    summary?: { added: string; modified: string; errors: string };
+    summary?: { added: string; modified: string; unchanged: string; errors: string };
     output?: string;
     error?: string;
   } | null>(null);
@@ -593,6 +593,7 @@ export default function AdminClient() {
         const output = status.output || '';
         const addedMatch = output.match(/Added:\s*(\d[\d,]*)/);
         const modifiedMatch = output.match(/Modified:\s*(\d[\d,]*)/);
+        const unchangedMatch = output.match(/Unchanged:\s*(\d[\d,]*)/);
         const errorMatch = output.match(/Errors:\s*(\d[\d,]*)/);
         const hasComplete = output.includes('BACKFILL COMPLETE');
 
@@ -603,6 +604,7 @@ export default function AdminClient() {
             summary: {
               added: addedMatch?.[1] || '0',
               modified: modifiedMatch?.[1] || '0',
+              unchanged: unchangedMatch?.[1] || '0',
               errors: errorMatch?.[1] || '0',
             },
           });
@@ -1313,9 +1315,16 @@ export default function AdminClient() {
             <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
               Months to look back:
             </label>
-            <select
+            <input
+              type="number"
+              min={1}
+              max={120}
               value={ingestionMonths}
-              onChange={(e) => setIngestionMonths(parseInt(e.target.value, 10))}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 1 && val <= 120) setIngestionMonths(val);
+                else if (e.target.value === '') setIngestionMonths(1);
+              }}
               disabled={ingestionRunning}
               style={{
                 padding: '8px 12px',
@@ -1324,16 +1333,11 @@ export default function AdminClient() {
                 fontSize: '14px',
                 color: '#334155',
                 background: ingestionRunning ? '#f1f5f9' : 'white',
-                cursor: ingestionRunning ? 'not-allowed' : 'pointer',
+                cursor: ingestionRunning ? 'not-allowed' : 'text',
+                width: '80px',
+                textAlign: 'center' as const,
               }}
-            >
-              <option value={1}>1 month</option>
-              <option value={3}>3 months</option>
-              <option value={6}>6 months</option>
-              <option value={12}>12 months</option>
-              <option value={24}>24 months</option>
-              <option value={36}>36 months</option>
-            </select>
+            />
             <span style={{ fontSize: '12px', color: '#94a3b8' }}>
               ~{formatNumber(ingestionMonths * 23000)} estimated records
             </span>
@@ -1587,9 +1591,16 @@ export default function AdminClient() {
             <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
               Months to backfill:
             </label>
-            <select
+            <input
+              type="number"
+              min={1}
+              max={120}
               value={backfillMonths}
-              onChange={(e) => setBackfillMonths(parseInt(e.target.value, 10))}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 1 && val <= 120) setBackfillMonths(val);
+                else if (e.target.value === '') setBackfillMonths(1);
+              }}
               disabled={backfillRunning}
               style={{
                 padding: '8px 12px',
@@ -1598,18 +1609,11 @@ export default function AdminClient() {
                 fontSize: '14px',
                 color: '#334155',
                 background: backfillRunning ? '#f1f5f9' : 'white',
-                cursor: backfillRunning ? 'not-allowed' : 'pointer',
+                cursor: backfillRunning ? 'not-allowed' : 'text',
+                width: '80px',
+                textAlign: 'center' as const,
               }}
-            >
-              <option value={1}>1 month</option>
-              <option value={3}>3 months</option>
-              <option value={6}>6 months</option>
-              <option value={12}>12 months</option>
-              <option value={24}>24 months</option>
-              <option value={36}>36 months</option>
-              <option value={48}>48 months</option>
-              <option value={60}>60 months (5 years)</option>
-            </select>
+            />
             <span style={{ fontSize: '12px', color: '#94a3b8' }}>
               ~{formatNumber(backfillMonths * 23000)} estimated records
             </span>
@@ -1754,6 +1758,10 @@ export default function AdminClient() {
                   <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
                     <div style={{ fontSize: '20px', fontWeight: 700, color: '#f59e0b' }}>{backfillResult.summary.modified}</div>
                     <div style={{ fontSize: '12px', color: '#64748b' }}>Modified</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#94a3b8' }}>{backfillResult.summary.unchanged}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Unchanged</div>
                   </div>
                   {backfillResult.summary.errors !== '0' && (
                     <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
