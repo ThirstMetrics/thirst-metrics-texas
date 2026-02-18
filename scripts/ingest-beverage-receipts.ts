@@ -361,6 +361,25 @@ function parseMoney(value: string | number | undefined): number | null {
   return isNaN(parsed) ? null : parsed;
 }
 
+/** Coerce a DuckDB value (DECIMAL, BigInt, string, number, or null) to a plain JS number for comparison */
+function toNum(val: any): number {
+  if (val === null || val === undefined) return 0;
+  // DuckDB DECIMAL may come back as an object with .value (BigInt) and .scale
+  if (typeof val === 'object' && val !== null && 'value' in val && 'scale' in val) {
+    return Number(val.value) / Math.pow(10, val.scale);
+  }
+  // BigInt
+  if (typeof val === 'bigint') return Number(val);
+  // String (e.g., "12345.67")
+  if (typeof val === 'string') {
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  // Already a number
+  const n = Number(val);
+  return isNaN(n) ? 0 : n;
+}
+
 // ---------------------------------------------------------------------------
 // Process a single record — insert or update in DuckDB
 // ---------------------------------------------------------------------------
@@ -465,14 +484,25 @@ async function processRecord(
   if (existing.length > 0) {
     // Compare key fields to see if anything actually changed
     const ex = existing[0];
-    const same =
-      String(ex.location_name ?? '') === String(locationName ?? '') &&
-      String(ex.location_address ?? '') === String(locationAddress ?? '') &&
-      Number(ex.liquor_receipts ?? 0) === Number(liquorReceipts ?? 0) &&
-      Number(ex.wine_receipts ?? 0) === Number(wineReceipts ?? 0) &&
-      Number(ex.beer_receipts ?? 0) === Number(beerReceipts ?? 0) &&
-      Number(ex.cover_charge_receipts ?? 0) === Number(coverChargeReceipts ?? 0) &&
-      Number(ex.total_receipts ?? 0) === Number(totalReceipts ?? 0);
+    const nameMatch = String(ex.location_name ?? '') === String(locationName ?? '');
+    const addrMatch = String(ex.location_address ?? '') === String(locationAddress ?? '');
+    const EPS = 0.005; // half-cent tolerance for DECIMAL(15,2)
+    const liquorMatch = Math.abs(toNum(ex.liquor_receipts) - toNum(liquorReceipts)) < EPS;
+    const wineMatch = Math.abs(toNum(ex.wine_receipts) - toNum(wineReceipts)) < EPS;
+    const beerMatch = Math.abs(toNum(ex.beer_receipts) - toNum(beerReceipts)) < EPS;
+    const coverMatch = Math.abs(toNum(ex.cover_charge_receipts) - toNum(coverChargeReceipts)) < EPS;
+    const totalMatch = Math.abs(toNum(ex.total_receipts) - toNum(totalReceipts)) < EPS;
+    const same = nameMatch && addrMatch && liquorMatch && wineMatch && beerMatch && coverMatch && totalMatch;
+
+    if (isFirstRecord && existing.length > 0) {
+      console.log(chalk.yellow('   Comparison debug (first existing record in batch):'));
+      console.log(chalk.gray(`     DB liquor_receipts raw: ${JSON.stringify(ex.liquor_receipts)} (type: ${typeof ex.liquor_receipts}) -> toNum: ${toNum(ex.liquor_receipts)}`));
+      console.log(chalk.gray(`     API liquor_receipts:    ${liquorReceipts} (type: ${typeof liquorReceipts}) -> toNum: ${toNum(liquorReceipts)}`));
+      console.log(chalk.gray(`     DB total_receipts raw:  ${JSON.stringify(ex.total_receipts)} (type: ${typeof ex.total_receipts}) -> toNum: ${toNum(ex.total_receipts)}`));
+      console.log(chalk.gray(`     API total_receipts:     ${totalReceipts} (type: ${typeof totalReceipts}) -> toNum: ${toNum(totalReceipts)}`));
+      console.log(chalk.gray(`     Fields match: name=${nameMatch} addr=${addrMatch} liquor=${liquorMatch} wine=${wineMatch} beer=${beerMatch} cover=${coverMatch} total=${totalMatch}`));
+      console.log(chalk.gray(`     Overall same: ${same}`));
+    }
 
     if (same) {
       // No change — skip the UPDATE entirely

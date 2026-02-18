@@ -142,7 +142,12 @@ export default function AdminEnrichments() {
   const [totalCount, setTotalCount] = useState(0);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'unenriched' | 'enriched' | 'all'>('unenriched');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [fullPageMode, setFullPageMode] = useState(false);
+
+  // Bulk table selection state
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [bulkSegment, setBulkSegment] = useState('');
 
   // AI state
   const [aiLoading, setAiLoading] = useState<Set<string>>(new Set());
@@ -527,6 +532,39 @@ export default function AdminEnrichments() {
   };
 
   // ----------------------------------------
+  // Bulk segment assignment (table view)
+  // ----------------------------------------
+
+  const applyBulkSegment = () => {
+    if (!bulkSegment || selectedRows.size === 0) return;
+    const newEdits = new Map(edits);
+    for (const permit of Array.from(selectedRows)) {
+      const current = getEdit(permit);
+      newEdits.set(permit, { ...current, industry_segment: bulkSegment, dirty: true, source: 'manual' });
+    }
+    setEdits(newEdits);
+    setSelectedRows(new Set());
+    setBulkSegment('');
+  };
+
+  const toggleRow = (permit: string) => {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(permit)) next.delete(permit);
+      else next.add(permit);
+      return next;
+    });
+  };
+
+  const toggleAllRows = () => {
+    if (selectedRows.size === locations.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(locations.map(l => l.tabc_permit_number)));
+    }
+  };
+
+  // ----------------------------------------
   // Sync to DuckDB
   // ----------------------------------------
 
@@ -615,7 +653,7 @@ export default function AdminEnrichments() {
         </div>
       )}
 
-      {/* Controls Row */}
+      {/* Controls Row 1: Search + Filters + View Toggle */}
       <div style={es.controlsRow}>
         {/* Search */}
         <input
@@ -642,50 +680,72 @@ export default function AdminEnrichments() {
           ))}
         </div>
 
-        {/* Action Buttons */}
-        <div style={es.actionGroup}>
+        {/* View Toggle — Cards / Table */}
+        <div style={{ ...es.filterGroup, borderLeft: '2px solid #cbd5e1', paddingLeft: '12px', marginLeft: '4px' }}>
           <button
-            onClick={enrichAllWithAI}
-            disabled={aiBulkLoading || loading}
+            onClick={() => setViewMode('cards')}
             style={{
-              ...es.aiBtn,
-              opacity: aiBulkLoading ? 0.6 : 1,
+              ...es.filterBtn,
+              ...(viewMode === 'cards' ? es.filterBtnActive : {}),
             }}
           >
-            {aiBulkLoading ? 'AI Processing...' : 'Enrich All with AI'}
+            Cards
           </button>
-
-          {dirtyCount > 0 && (
-            <button
-              onClick={commitAllDirty}
-              disabled={commitLoading}
-              style={es.commitAllBtn}
-            >
-              {commitLoading ? 'Committing...' : `Commit All (${dirtyCount})`}
-            </button>
-          )}
-
           <button
-            onClick={triggerSync}
-            disabled={syncLoading || (stats?.pendingSyncCount === 0)}
+            onClick={() => setViewMode('table')}
             style={{
-              ...es.syncBtn,
-              opacity: syncLoading || (stats?.pendingSyncCount === 0) ? 0.5 : 1,
+              ...es.filterBtn,
+              ...(viewMode === 'table' ? es.filterBtnActive : {}),
             }}
           >
-            {syncLoading ? 'Syncing...' : 'Sync to DuckDB'}
-            {stats && stats.pendingSyncCount > 0 && (
-              <span style={es.syncBadge}>{stats.pendingSyncCount}</span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setFullPageMode(!fullPageMode)}
-            style={es.expandBtn}
-          >
-            {fullPageMode ? 'Exit Full Page' : 'Expand'}
+            Table
           </button>
         </div>
+      </div>
+
+      {/* Controls Row 2: Action Buttons */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' as const }}>
+        <button
+          onClick={enrichAllWithAI}
+          disabled={aiBulkLoading || loading}
+          style={{
+            ...es.aiBtn,
+            opacity: aiBulkLoading ? 0.6 : 1,
+          }}
+        >
+          {aiBulkLoading ? 'AI Processing...' : 'Enrich All with AI'}
+        </button>
+
+        {dirtyCount > 0 && (
+          <button
+            onClick={commitAllDirty}
+            disabled={commitLoading}
+            style={es.commitAllBtn}
+          >
+            {commitLoading ? 'Committing...' : `Commit All (${dirtyCount})`}
+          </button>
+        )}
+
+        <button
+          onClick={triggerSync}
+          disabled={syncLoading || (stats?.pendingSyncCount === 0)}
+          style={{
+            ...es.syncBtn,
+            opacity: syncLoading || (stats?.pendingSyncCount === 0) ? 0.5 : 1,
+          }}
+        >
+          {syncLoading ? 'Syncing...' : 'Sync to DuckDB'}
+          {stats && stats.pendingSyncCount > 0 && (
+            <span style={es.syncBadge}>{stats.pendingSyncCount}</span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setFullPageMode(!fullPageMode)}
+          style={es.expandBtn}
+        >
+          {fullPageMode ? 'Exit Full Page' : 'Expand'}
+        </button>
       </div>
 
       {/* Result Banners */}
@@ -745,7 +805,8 @@ export default function AdminEnrichments() {
         </div>
       )}
 
-      {!loading && locations.length > 0 && (
+      {/* Card View */}
+      {!loading && locations.length > 0 && viewMode === 'cards' && (
         <div style={es.tileGrid}>
           {locations.map(loc => {
             const edit = getEdit(loc.tabc_permit_number);
@@ -924,6 +985,152 @@ export default function AdminEnrichments() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Table View */}
+      {!loading && locations.length > 0 && viewMode === 'table' && (
+        <div>
+          {/* Bulk Actions Bar */}
+          {selectedRows.size > 0 && (
+            <div style={es.bulkBar}>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>
+                {selectedRows.size} selected
+              </span>
+              <select
+                value={bulkSegment}
+                onChange={e => setBulkSegment(e.target.value)}
+                style={{ ...es.fieldSelect, flex: 'none', width: '200px' }}
+              >
+                <option value="">Set segment...</option>
+                {INDUSTRY_SEGMENTS.map(seg => (
+                  <option key={seg} value={seg}>{seg}</option>
+                ))}
+              </select>
+              <button
+                onClick={applyBulkSegment}
+                disabled={!bulkSegment}
+                style={{
+                  ...es.tileBtn,
+                  ...es.tileBtnCommit,
+                  opacity: !bulkSegment ? 0.4 : 1,
+                }}
+              >
+                Apply to Selected
+              </button>
+              <button
+                onClick={() => setSelectedRows(new Set())}
+                style={{ ...es.tileBtn, ...es.tileBtnSkip }}
+              >
+                Clear Selection
+              </button>
+            </div>
+          )}
+
+          <div style={es.tableWrap}>
+            <table style={es.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...es.th, width: '40px', textAlign: 'center' as const }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.size === locations.length && locations.length > 0}
+                      onChange={toggleAllRows}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                  <th style={es.th}>Name / Address</th>
+                  <th style={{ ...es.th, textAlign: 'right' as const }}>Revenue</th>
+                  <th style={es.th}>Clean DBA Name</th>
+                  <th style={es.th}>Ownership Group</th>
+                  <th style={{ ...es.th, width: '180px' }}>Segment</th>
+                  <th style={{ ...es.th, width: '60px', textAlign: 'center' as const }}>Save</th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map(loc => {
+                  const edit = getEdit(loc.tabc_permit_number);
+                  const isDirty = edits.get(loc.tabc_permit_number)?.dirty || false;
+                  const isSelected = selectedRows.has(loc.tabc_permit_number);
+
+                  return (
+                    <tr
+                      key={loc.tabc_permit_number}
+                      style={{
+                        ...es.tr,
+                        background: isDirty ? '#f0fdf4' : isSelected ? '#eff6ff' : 'white',
+                      }}
+                    >
+                      <td style={{ ...es.td, textAlign: 'center' as const }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleRow(loc.tabc_permit_number)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                      <td style={es.td}>
+                        <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '13px' }}>
+                          {loc.location_name || 'Unknown'}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                          {loc.location_address}, {loc.location_city}
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#cbd5e1', fontFamily: 'monospace' }}>
+                          {loc.tabc_permit_number}
+                        </div>
+                      </td>
+                      <td style={{ ...es.td, textAlign: 'right' as const, fontWeight: 600, color: '#0d7377', whiteSpace: 'nowrap' as const }}>
+                        {formatCurrency(loc.total_revenue)}
+                      </td>
+                      <td style={es.td}>
+                        <input
+                          type="text"
+                          value={edit.clean_dba_name}
+                          onChange={e => updateEdit(loc.tabc_permit_number, 'clean_dba_name', e.target.value)}
+                          placeholder="Clean name..."
+                          style={es.tableInput}
+                        />
+                      </td>
+                      <td style={es.td}>
+                        <input
+                          type="text"
+                          value={edit.ownership_group}
+                          onChange={e => updateEdit(loc.tabc_permit_number, 'ownership_group', e.target.value)}
+                          placeholder="Ownership..."
+                          style={es.tableInput}
+                        />
+                      </td>
+                      <td style={es.td}>
+                        <select
+                          value={edit.industry_segment}
+                          onChange={e => updateEdit(loc.tabc_permit_number, 'industry_segment', e.target.value)}
+                          style={es.tableSelect}
+                        >
+                          <option value="">Select...</option>
+                          {INDUSTRY_SEGMENTS.map(seg => (
+                            <option key={seg} value={seg}>{seg}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td style={{ ...es.td, textAlign: 'center' as const }}>
+                        {isDirty && (
+                          <button
+                            onClick={() => commitSingle(loc.tabc_permit_number)}
+                            disabled={commitLoading}
+                            style={es.tableSaveBtn}
+                            title="Save"
+                          >
+                            {'\u2713'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -1367,5 +1574,83 @@ const es: Record<string, React.CSSProperties> = {
   pageInfo: {
     fontSize: '13px',
     color: '#64748b',
+  },
+
+  // Bulk actions bar
+  bulkBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '12px 16px',
+    background: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    borderRadius: '8px',
+    marginBottom: '12px',
+  },
+
+  // Table styles
+  tableWrap: {
+    overflowX: 'auto' as const,
+    WebkitOverflowScrolling: 'touch' as const,
+    borderRadius: '8px',
+    border: '1px solid #e2e8f0',
+    background: 'white',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse' as const,
+    fontSize: '13px',
+  },
+  th: {
+    padding: '10px 12px',
+    textAlign: 'left' as const,
+    fontWeight: 600,
+    color: '#64748b',
+    fontSize: '11px',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.4px',
+    borderBottom: '2px solid #e2e8f0',
+    whiteSpace: 'nowrap' as const,
+    userSelect: 'none' as const,
+    background: '#f8fafc',
+  },
+  tr: {
+    borderBottom: '1px solid #f1f5f9',
+    transition: 'background 0.1s',
+  },
+  td: {
+    padding: '8px 12px',
+    color: '#334155',
+    fontSize: '13px',
+    verticalAlign: 'top' as const,
+  },
+  tableInput: {
+    width: '100%',
+    padding: '5px 8px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    fontSize: '13px',
+    outline: 'none',
+    background: '#fafafa',
+  },
+  tableSelect: {
+    width: '100%',
+    padding: '5px 8px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    fontSize: '13px',
+    outline: 'none',
+    background: '#fafafa',
+    cursor: 'pointer',
+  },
+  tableSaveBtn: {
+    padding: '4px 10px',
+    background: '#0d7377',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: 700,
   },
 };

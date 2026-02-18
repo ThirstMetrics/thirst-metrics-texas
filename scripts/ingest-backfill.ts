@@ -366,6 +366,25 @@ function parseMoney(value: string | number | undefined): number | null {
   return isNaN(parsed) ? null : parsed;
 }
 
+/** Coerce a DuckDB value (DECIMAL, BigInt, string, number, or null) to a plain JS number for comparison */
+function toNum(val: any): number {
+  if (val === null || val === undefined) return 0;
+  // DuckDB DECIMAL may come back as an object with .value (BigInt) and .scale
+  if (typeof val === 'object' && val !== null && 'value' in val && 'scale' in val) {
+    return Number(val.value) / Math.pow(10, val.scale);
+  }
+  // BigInt
+  if (typeof val === 'bigint') return Number(val);
+  // String (e.g., "12345.67")
+  if (typeof val === 'string') {
+    const parsed = parseFloat(val);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  // Already a number
+  const n = Number(val);
+  return isNaN(n) ? 0 : n;
+}
+
 // ---------------------------------------------------------------------------
 // Process a single record — insert or update in DuckDB
 // ---------------------------------------------------------------------------
@@ -374,7 +393,7 @@ async function processRecord(
   record: BeverageReceipt,
   conn: duckdb.Connection,
   isFirstRecord: boolean = false
-): Promise<{ inserted: boolean; modified: boolean }> {
+): Promise<{ inserted: boolean; modified: boolean; unchanged: boolean }> {
   const permitNumber = (record as any).tabc_permit_number;
   const obligationDateStr = (record as any).obligation_end_date_yyyymmdd;
 
@@ -390,7 +409,7 @@ async function processRecord(
     if (isFirstRecord) {
       console.log(chalk.red(`   Skipping: Missing permitNumber or obligation_end_date_yyyymmdd`));
     }
-    return { inserted: false, modified: false };
+    return { inserted: false, modified: false, unchanged: false };
   }
 
   const obligationDate = parseDate(obligationDateStr);
@@ -398,7 +417,7 @@ async function processRecord(
     if (isFirstRecord) {
       console.log(chalk.red(`   Skipping: Invalid date format: ${obligationDateStr}`));
     }
-    return { inserted: false, modified: false };
+    return { inserted: false, modified: false, unchanged: false };
   }
 
   // Generate location_month_key
@@ -435,10 +454,13 @@ async function processRecord(
   const responsibilityBeginDate = responsibilityBeginStr ? parseDate(responsibilityBeginStr) : null;
   const responsibilityEndDate = responsibilityEndStr ? parseDate(responsibilityEndStr) : null;
 
-  // Check if record exists
+  // Check if record exists and fetch key fields for comparison
   const existing = await new Promise<any[]>((resolve, reject) => {
     conn.all(
-      'SELECT location_month_key FROM mixed_beverage_receipts WHERE location_month_key = ?',
+      `SELECT location_month_key, location_name, location_address,
+              liquor_receipts, wine_receipts, beer_receipts,
+              cover_charge_receipts, total_receipts
+       FROM mixed_beverage_receipts WHERE location_month_key = ?`,
       [monthKey],
       (err: any, result: any[]) => {
         if (err) {
@@ -455,7 +477,37 @@ async function processRecord(
   const respEndStr = responsibilityEndDate ? responsibilityEndDate.toISOString().split('T')[0] : null;
 
   if (existing.length > 0) {
-    // Update existing record
+    // Compare key fields to see if anything actually changed
+    const ex = existing[0];
+    const nameMatch = String(ex.location_name ?? '') === String(locationName ?? '');
+    const addrMatch = String(ex.location_address ?? '') === String(locationAddress ?? '');
+    const EPS = 0.005; // half-cent tolerance for DECIMAL(15,2)
+    const liquorMatch = Math.abs(toNum(ex.liquor_receipts) - toNum(liquorReceipts)) < EPS;
+    const wineMatch = Math.abs(toNum(ex.wine_receipts) - toNum(wineReceipts)) < EPS;
+    const beerMatch = Math.abs(toNum(ex.beer_receipts) - toNum(beerReceipts)) < EPS;
+    const coverMatch = Math.abs(toNum(ex.cover_charge_receipts) - toNum(coverChargeReceipts)) < EPS;
+    const totalMatch = Math.abs(toNum(ex.total_receipts) - toNum(totalReceipts)) < EPS;
+    const same = nameMatch && addrMatch && liquorMatch && wineMatch && beerMatch && coverMatch && totalMatch;
+
+    if (isFirstRecord && existing.length > 0) {
+      console.log(chalk.yellow('   Comparison debug (first existing record in batch):'));
+      console.log(chalk.gray(`     DB liquor_receipts raw: ${JSON.stringify(ex.liquor_receipts)} (type: ${typeof ex.liquor_receipts}) -> toNum: ${toNum(ex.liquor_receipts)}`));
+      console.log(chalk.gray(`     API liquor_receipts:    ${liquorReceipts} (type: ${typeof liquorReceipts}) -> toNum: ${toNum(liquorReceipts)}`));
+      console.log(chalk.gray(`     DB total_receipts raw:  ${JSON.stringify(ex.total_receipts)} (type: ${typeof ex.total_receipts}) -> toNum: ${toNum(ex.total_receipts)}`));
+      console.log(chalk.gray(`     API total_receipts:     ${totalReceipts} (type: ${typeof totalReceipts}) -> toNum: ${toNum(totalReceipts)}`));
+      console.log(chalk.gray(`     Fields match: name=${nameMatch} addr=${addrMatch} liquor=${liquorMatch} wine=${wineMatch} beer=${beerMatch} cover=${coverMatch} total=${totalMatch}`));
+      console.log(chalk.gray(`     Overall same: ${same}`));
+    }
+
+    if (same) {
+      // No change — skip the UPDATE entirely
+      if (isFirstRecord) {
+        console.log(chalk.gray(`   Unchanged existing record: ${monthKey} (skipped)`));
+      }
+      return { inserted: false, modified: false, unchanged: true };
+    }
+
+    // Data actually changed — run the UPDATE
     try {
       await runQuery(
         conn,
@@ -490,7 +542,7 @@ async function processRecord(
       if (isFirstRecord) {
         console.log(chalk.green(`   Updated existing record: ${monthKey}`));
       }
-      return { inserted: false, modified: true };
+      return { inserted: false, modified: true, unchanged: false };
     } catch (error: any) {
       console.error(chalk.red(`\n   UPDATE ERROR for ${monthKey}: ${error.message || error}`));
       throw error;
@@ -530,7 +582,7 @@ async function processRecord(
         console.log(chalk.green(`   Inserted new record: ${monthKey}`));
         console.log(chalk.gray(`   Values: permit=${permitNumber}, date=${dateStr}, county=${countyCode || 'null'}`));
       }
-      return { inserted: true, modified: false };
+      return { inserted: true, modified: false, unchanged: false };
     } catch (error: any) {
       console.error(chalk.red(`\n   INSERT ERROR for ${monthKey}: ${error.message || error}`));
       console.error(chalk.gray(`   Params: monthKey=${monthKey}, permitNumber=${permitNumber}, date=${dateStr}`));
@@ -636,6 +688,7 @@ async function ingestBackfill() {
   let offset = checkpoint ? checkpoint.offset : 0;
   let totalInserted = checkpoint ? checkpoint.totalInserted : 0;
   let totalModified = checkpoint ? checkpoint.totalModified : 0;
+  let totalUnchanged = 0;
   let errors = checkpoint ? checkpoint.errors : 0;
   const effectiveStartedAt = checkpoint ? checkpoint.startedAt : startedAt;
 
@@ -685,7 +738,7 @@ async function ingestBackfill() {
 
   try {
     fetchProgressBar.start(totalFetched || 1, totalFetched);
-    processProgressBar.start(totalFetched || 1, totalInserted + totalModified);
+    processProgressBar.start(totalFetched || 1, totalInserted + totalModified + totalUnchanged);
 
     while (hasMore) {
       // ------- Check for graceful shutdown before fetching next batch -------
@@ -741,8 +794,9 @@ async function ingestBackfill() {
           const isFirst = i === 0;
           const result = await processRecord(batch[i], conn, isFirst);
           if (result.inserted) totalInserted++;
-          if (result.modified) totalModified++;
-          processProgressBar.update(totalInserted + totalModified);
+          else if (result.modified) totalModified++;
+          else if (result.unchanged) totalUnchanged++;
+          processProgressBar.update(totalInserted + totalModified + totalUnchanged);
         } catch (error: any) {
           errors++;
           console.error(chalk.red(`\n   Error processing record ${i} in batch #${batchNumber}: ${error.message || error}`));
@@ -791,7 +845,7 @@ async function ingestBackfill() {
       // Brief delay between batches to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      console.log(chalk.gray(`   Batch #${batchNumber} complete: ${totalInserted} inserted, ${totalModified} modified, ${errors} errors`));
+      console.log(chalk.gray(`   Batch #${batchNumber} complete: ${totalInserted} inserted, ${totalModified} modified, ${totalUnchanged} unchanged, ${errors} errors`));
     }
 
     fetchProgressBar.stop();
@@ -832,6 +886,7 @@ async function ingestBackfill() {
     console.log(chalk.cyan(`   Fetched: ${totalFetched} records from API`));
     console.log(chalk.cyan(`   Added: ${totalInserted} records`));
     console.log(chalk.cyan(`   Modified: ${totalModified} records`));
+    console.log(chalk.cyan(`   Unchanged: ${totalUnchanged} records`));
     console.log(chalk.cyan(`   Errors: ${errors}`));
     console.log(chalk.cyan(`   Duration: ${durationMin}m ${durationSec}s`));
     console.log(chalk.green(`   New earliest date in DB: ${newEarliestDate}`));

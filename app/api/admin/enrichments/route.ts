@@ -96,6 +96,9 @@ export async function GET(request: NextRequest) {
     // 1. Query DuckDB for all distinct locations with aggregated revenue
     // -----------------------------------------------------------------------
 
+    // Only include locations with an active permit (responsibility_end_date IS NULL
+    // on their most recent record). Closed businesses are still valuable for market
+    // analytics but don't need enrichment since nobody is making sales calls there.
     let duckdbSql = `
       SELECT
         m.tabc_permit_number,
@@ -108,6 +111,16 @@ export async function GET(request: NextRequest) {
         CAST(MAX(m.obligation_end_date) AS VARCHAR) AS last_receipt_date,
         CAST(COUNT(*) AS DOUBLE) AS receipt_count
       FROM mixed_beverage_receipts m
+      WHERE m.tabc_permit_number IN (
+        SELECT r.tabc_permit_number
+        FROM mixed_beverage_receipts r
+        WHERE r.obligation_end_date = (
+          SELECT MAX(r2.obligation_end_date)
+          FROM mixed_beverage_receipts r2
+          WHERE r2.tabc_permit_number = r.tabc_permit_number
+        )
+        AND r.responsibility_end_date IS NULL
+      )
     `;
 
     const conditions: string[] = [];
@@ -123,7 +136,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (conditions.length > 0) {
-      duckdbSql += ` WHERE ${conditions.join(' AND ')}`;
+      duckdbSql += ` AND ${conditions.join(' AND ')}`;
     }
 
     duckdbSql += ` GROUP BY m.tabc_permit_number ORDER BY total_revenue DESC`;
