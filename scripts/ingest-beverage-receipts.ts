@@ -12,12 +12,14 @@
  *   - Memory management: releases batch arrays, logs heap usage every 5 batches
  *
  * Usage:
- *   npx tsx scripts/ingest-beverage-receipts.ts           # normal run (resumes from checkpoint if present)
- *   npx tsx scripts/ingest-beverage-receipts.ts --fresh    # ignore checkpoint, start from scratch
+ *   npx tsx scripts/ingest-beverage-receipts.ts                 # default 3 months lookback
+ *   npx tsx scripts/ingest-beverage-receipts.ts --months 6      # 6 months lookback
+ *   npx tsx scripts/ingest-beverage-receipts.ts --months 37     # full history (37 months)
+ *   npx tsx scripts/ingest-beverage-receipts.ts --fresh          # ignore checkpoint, start from scratch
  *
  * Environment variables:
  *   INGEST_BATCH_SIZE       - records per API fetch (default: 5000)
- *   INGEST_LOOKBACK_MONTHS  - how far back to fetch (default: 37)
+ *   INGEST_LOOKBACK_MONTHS  - how far back to fetch (default: 3)
  *   TEXAS_API_BASE_URL      - API endpoint
  *   TEXAS_APP_TOKEN         - Socrata app token
  *   TEXAS_GOV_APP_TOKEN     - alternate app token env var
@@ -51,7 +53,18 @@ const DUCKDB_PRODUCTION_PATH = process.env.DUCKDB_PATH
 const DUCKDB_STAGING_PATH = DUCKDB_PRODUCTION_PATH.replace(/\.duckdb$/, '-staging.duckdb');
 const DUCKDB_PATH = DUCKDB_STAGING_PATH;
 
-const LOOKBACK_MONTHS = parseInt(process.env.INGEST_LOOKBACK_MONTHS || '37', 10);
+function parseMonthsArg(): number {
+  const idx = process.argv.indexOf('--months');
+  if (idx !== -1 && process.argv[idx + 1]) {
+    const val = parseInt(process.argv[idx + 1], 10);
+    if (!isNaN(val) && val > 0) return val;
+  }
+  if (process.env.INGEST_LOOKBACK_MONTHS) {
+    return parseInt(process.env.INGEST_LOOKBACK_MONTHS, 10);
+  }
+  return 3; // default: 3 months for routine runs
+}
+const LOOKBACK_MONTHS = parseMonthsArg();
 const BATCH_SIZE = parseInt(process.env.INGEST_BATCH_SIZE || '5000', 10);
 
 const FETCH_TIMEOUT_MS = 60_000;          // 60 seconds per fetch
@@ -243,11 +256,19 @@ function logMemoryUsage(batchNumber: number): void {
 // Fetch with timeout + exponential backoff retries
 // ---------------------------------------------------------------------------
 
-async function fetchFromAPI(offset: number, limit: number): Promise<BeverageReceipt[]> {
+async function fetchFromAPI(offset: number, limit: number, startDate?: Date): Promise<BeverageReceipt[]> {
   const url = new URL(API_BASE_URL);
   url.searchParams.set('$limit', limit.toString());
   url.searchParams.set('$offset', offset.toString());
   url.searchParams.set('$order', 'obligation_end_date_yyyymmdd DESC');
+
+  // Server-side date filter: only fetch records within the lookback window.
+  // The Texas.gov Socrata API accepts ISO timestamps for date comparisons.
+  if (startDate) {
+    const isoStart = startDate.toISOString().split('T')[0] + 'T00:00:00.000';
+    url.searchParams.set('$where', `obligation_end_date_yyyymmdd >= '${isoStart}'`);
+  }
+
   if (APP_TOKEN) {
     url.searchParams.set('$$app_token', APP_TOKEN);
   }
@@ -419,10 +440,13 @@ async function processRecord(
   const responsibilityBeginDate = responsibilityBeginStr ? parseDate(responsibilityBeginStr) : null;
   const responsibilityEndDate = responsibilityEndStr ? parseDate(responsibilityEndStr) : null;
 
-  // Check if record exists
+  // Check if record exists and fetch key fields for comparison
   const existing = await new Promise<any[]>((resolve, reject) => {
     conn.all(
-      'SELECT location_month_key FROM mixed_beverage_receipts WHERE location_month_key = ?',
+      `SELECT location_month_key, location_name, location_address,
+              liquor_receipts, wine_receipts, beer_receipts,
+              cover_charge_receipts, total_receipts
+       FROM mixed_beverage_receipts WHERE location_month_key = ?`,
       [monthKey],
       (err: any, result: any[]) => {
         if (err) {
@@ -439,7 +463,26 @@ async function processRecord(
   const respEndStr = responsibilityEndDate ? responsibilityEndDate.toISOString().split('T')[0] : null;
 
   if (existing.length > 0) {
-    // Update existing record
+    // Compare key fields to see if anything actually changed
+    const ex = existing[0];
+    const same =
+      String(ex.location_name ?? '') === String(locationName ?? '') &&
+      String(ex.location_address ?? '') === String(locationAddress ?? '') &&
+      Number(ex.liquor_receipts ?? 0) === Number(liquorReceipts ?? 0) &&
+      Number(ex.wine_receipts ?? 0) === Number(wineReceipts ?? 0) &&
+      Number(ex.beer_receipts ?? 0) === Number(beerReceipts ?? 0) &&
+      Number(ex.cover_charge_receipts ?? 0) === Number(coverChargeReceipts ?? 0) &&
+      Number(ex.total_receipts ?? 0) === Number(totalReceipts ?? 0);
+
+    if (same) {
+      // No change — skip the UPDATE entirely
+      if (isFirstRecord) {
+        console.log(chalk.gray(`   Unchanged existing record: ${monthKey} (skipped)`));
+      }
+      return { inserted: false, modified: false, filtered: false };
+    }
+
+    // Data actually changed — run the UPDATE
     try {
       await runQuery(
         conn,
@@ -561,6 +604,7 @@ async function ingestBeverageReceipts() {
   let totalInserted = checkpoint ? checkpoint.totalInserted : 0;
   let totalModified = checkpoint ? checkpoint.totalModified : 0;
   let totalFiltered = checkpoint ? checkpoint.totalFiltered : 0;
+  let totalUnchanged = 0;
   let errors = checkpoint ? checkpoint.errors : 0;
   const effectiveStartedAt = checkpoint ? checkpoint.startedAt : startedAt;
 
@@ -635,7 +679,7 @@ async function ingestBeverageReceipts() {
 
   try {
     fetchProgressBar.start(totalFetched || 1, totalFetched);
-    processProgressBar.start(totalFetched || 1, totalInserted + totalModified);
+    processProgressBar.start(totalFetched || 1, totalInserted + totalModified + totalUnchanged);
 
     while (hasMore) {
       // ------- Check for graceful shutdown before fetching next batch -------
@@ -651,7 +695,7 @@ async function ingestBeverageReceipts() {
       let batch: BeverageReceipt[] | null = null;
 
       try {
-        batch = await fetchFromAPI(offset, BATCH_SIZE);
+        batch = await fetchFromAPI(offset, BATCH_SIZE, startDate);
       } catch (fetchErr: any) {
         // All retries exhausted for this batch
         console.error(chalk.red(`\n   Fatal fetch error at offset ${offset}: ${fetchErr.message || fetchErr}`));
@@ -675,6 +719,7 @@ async function ingestBeverageReceipts() {
       console.log(chalk.cyan(`\n   Batch #${batchNumber}: ${batch.length} records (offset ${offset}, total fetched: ${totalFetched})`));
 
       // Process each record in the batch
+      let batchFiltered = 0;
       for (let i = 0; i < batch.length; i++) {
         // Check for shutdown between records
         if (shutdownRequested) {
@@ -691,9 +736,10 @@ async function ingestBeverageReceipts() {
           const isFirst = i === 0;
           const result = await processRecord(batch[i], conn, countyMap, startDate, isFirst);
           if (result.inserted) totalInserted++;
-          if (result.modified) totalModified++;
-          if (result.filtered) totalFiltered++;
-          processProgressBar.update(totalInserted + totalModified);
+          else if (result.modified) totalModified++;
+          else if (result.filtered) { totalFiltered++; batchFiltered++; }
+          else totalUnchanged++;
+          processProgressBar.update(totalInserted + totalModified + totalUnchanged);
         } catch (error: any) {
           errors++;
           console.error(chalk.red(`\n   Error processing record ${i} in batch #${batchNumber}: ${error.message || error}`));
@@ -711,10 +757,17 @@ async function ingestBeverageReceipts() {
         }
       }
 
-      // Batch complete - advance offset
-      if (batch.length < BATCH_SIZE) {
+      // Early termination: if every record in this batch was filtered (outside
+      // the date range), all subsequent records will also be older. Stop now.
+      if (batchFiltered === batch.length && batch.length > 0) {
+        console.log(chalk.yellow(`\n   Early termination: entire batch #${batchNumber} was outside date range. No newer data remains.`));
         hasMore = false;
-      } else {
+      }
+
+      // Batch complete - advance offset
+      if (hasMore && batch.length < BATCH_SIZE) {
+        hasMore = false;
+      } else if (hasMore) {
         offset += BATCH_SIZE;
       }
 
@@ -741,7 +794,7 @@ async function ingestBeverageReceipts() {
       // Brief delay between batches to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      console.log(chalk.gray(`   Batch #${batchNumber} complete: ${totalInserted} inserted, ${totalModified} modified, ${totalFiltered} filtered, ${errors} errors`));
+      console.log(chalk.gray(`   Batch #${batchNumber} complete: ${totalInserted} inserted, ${totalModified} modified, ${totalUnchanged} unchanged, ${totalFiltered} filtered, ${errors} errors`));
     }
 
     fetchProgressBar.stop();
@@ -764,6 +817,7 @@ async function ingestBeverageReceipts() {
     }
     console.log(chalk.cyan(`   Added: ${totalInserted} records`));
     console.log(chalk.cyan(`   Modified: ${totalModified} records`));
+    console.log(chalk.cyan(`   Unchanged: ${totalUnchanged} records`));
     console.log(chalk.cyan(`   Errors: ${errors}`));
     console.log(chalk.cyan(`   Duration: ${durationMin}m ${durationSec}s`));
 

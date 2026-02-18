@@ -8,7 +8,7 @@
  * DELETE /api/admin/ingestion  - Check ingestion status: lock file, log tail, and screen session
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, createServiceClient } from '@/lib/supabase/server';
 import { query } from '@/lib/duckdb/connection';
 import { isProductionServer, APP_PATH } from '@/lib/server/exec-remote';
@@ -361,12 +361,23 @@ export async function POST() {
 // PUT handler - Trigger ingestion via detached screen session (fire-and-forget)
 // ---------------------------------------------------------------------------
 
-export async function PUT() {
+export async function PUT(request: NextRequest) {
   try {
     const supabase = await createServerClient();
     const { user, error: adminError, status } = await verifyAdmin(supabase);
     if (adminError || !user) {
       return NextResponse.json({ error: adminError }, { status });
+    }
+
+    // Parse request body for months parameter (default: 3)
+    let months = 3;
+    try {
+      const body = await request.json();
+      if (body.months && typeof body.months === 'number' && body.months > 0 && body.months <= 120) {
+        months = body.months;
+      }
+    } catch {
+      // Default to 3 months if no body
     }
 
     const { exec } = await import('child_process');
@@ -431,7 +442,7 @@ export async function PUT() {
       `export NVM_DIR="$HOME/.nvm"`,
       `[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"`,
       `cd ${APP_PATH}`,
-      `npx tsx scripts/ingest-beverage-receipts.ts 2>&1 | tee ${logFile}`,
+      `npx tsx scripts/ingest-beverage-receipts.ts --months ${months} 2>&1 | tee ${logFile}`,
     ].join(' ; ');
 
     // Build the full command: either local screen or SSH-wrapped screen
@@ -439,7 +450,7 @@ export async function PUT() {
       ? `screen -dmS thirst-ingest bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-ingest bash -c '${remoteScript}'"`;
 
-    console.log(`[Admin Ingestion API] Launching detached screen session ${isLocal ? 'locally' : 'via SSH'}...`);
+    console.log(`[Admin Ingestion API] Launching ingestion screen session (${months} months) ${isLocal ? 'locally' : 'via SSH'}...`);
 
     const launchResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
@@ -462,7 +473,8 @@ export async function PUT() {
 
     return NextResponse.json({
       success: true,
-      message: 'Ingestion started in background screen session. Use status check to monitor progress.',
+      message: `Ingestion started for ${months} months in background screen session.`,
+      months,
       status: 'started',
     });
   } catch (error: any) {

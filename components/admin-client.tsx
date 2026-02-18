@@ -179,11 +179,12 @@ export default function AdminClient() {
   const [ingestionCheckLoading, setIngestionCheckLoading] = useState(false);
   const [roleUpdateLoading, setRoleUpdateLoading] = useState<string | null>(null);
   const [roleUpdateError, setRoleUpdateError] = useState<string | null>(null);
+  const [ingestionMonths, setIngestionMonths] = useState(3);
   const [ingestionRunning, setIngestionRunning] = useState(false);
   const [ingestionResult, setIngestionResult] = useState<{
     success: boolean;
     message: string;
-    summary?: { added: string; modified: string; fetched: string; errors: string };
+    summary?: { added: string; modified: string; unchanged: string; fetched: string; errors: string };
     output?: string;
     error?: string;
   } | null>(null);
@@ -410,6 +411,7 @@ export default function AdminClient() {
         const output = status.output || '';
         const addedMatch = output.match(/Added:\s*(\d[\d,]*)/);
         const modifiedMatch = output.match(/Modified:\s*(\d[\d,]*)/);
+        const unchangedMatch = output.match(/Unchanged:\s*(\d[\d,]*)/);
         const fetchedMatch = output.match(/Fetched:\s*(\d[\d,]*)/);
         const errorMatch = output.match(/Errors:\s*(\d[\d,]*)/);
         const hasComplete = output.includes('INGESTION COMPLETE');
@@ -421,6 +423,7 @@ export default function AdminClient() {
             summary: {
               added: addedMatch?.[1] || '0',
               modified: modifiedMatch?.[1] || '0',
+              unchanged: unchangedMatch?.[1] || '0',
               fetched: fetchedMatch?.[1] || 'unknown',
               errors: errorMatch?.[1] || '0',
             },
@@ -441,6 +444,7 @@ export default function AdminClient() {
               summary: {
                 added: addedMatch?.[1] || '0',
                 modified: modifiedMatch?.[1] || '0',
+                unchanged: unchangedMatch?.[1] || '0',
                 fetched: fetchedMatch?.[1] || 'unknown',
                 errors: errorMatch?.[1] || '0',
               },
@@ -492,7 +496,11 @@ export default function AdminClient() {
     setIngestionResult(null);
     setIngestionStatus(null);
     try {
-      const res = await fetch('/api/admin/ingestion', { method: 'PUT' });
+      const res = await fetch('/api/admin/ingestion', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ months: ingestionMonths }),
+      });
       const result = await res.json();
 
       if (res.status === 409) {
@@ -528,7 +536,7 @@ export default function AdminClient() {
       });
       setIngestionRunning(false);
     }
-  }, [startPolling]);
+  }, [ingestionMonths, startPolling]);
 
   // ----------------------------------------
   // Backfill: fetch data boundaries
@@ -1299,6 +1307,38 @@ export default function AdminClient() {
           <p style={{ fontSize: '13px', color: '#94a3b8', margin: '0 0 16px 0' }}>
             Status updates every 5 seconds. The live log shows record counts as data flows in.
           </p>
+
+          {/* Month selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
+              Months to look back:
+            </label>
+            <select
+              value={ingestionMonths}
+              onChange={(e) => setIngestionMonths(parseInt(e.target.value, 10))}
+              disabled={ingestionRunning}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #d1d5db',
+                fontSize: '14px',
+                color: '#334155',
+                background: ingestionRunning ? '#f1f5f9' : 'white',
+                cursor: ingestionRunning ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <option value={1}>1 month</option>
+              <option value={3}>3 months</option>
+              <option value={6}>6 months</option>
+              <option value={12}>12 months</option>
+              <option value={24}>24 months</option>
+              <option value={36}>36 months</option>
+            </select>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+              ~{formatNumber(ingestionMonths * 23000)} estimated records
+            </span>
+          </div>
+
           <button
             onClick={handleRunIngestion}
             disabled={ingestionRunning}
@@ -1445,6 +1485,10 @@ export default function AdminClient() {
                   <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
                     <div style={{ fontSize: '20px', fontWeight: 700, color: '#f59e0b' }}>{ingestionResult.summary.modified}</div>
                     <div style={{ fontSize: '12px', color: '#64748b' }}>Modified</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#94a3b8' }}>{ingestionResult.summary.unchanged}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>Unchanged</div>
                   </div>
                   <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.7)', borderRadius: '6px' }}>
                     <div style={{ fontSize: '20px', fontWeight: 700, color: '#6b7280' }}>{ingestionResult.summary.fetched}</div>
