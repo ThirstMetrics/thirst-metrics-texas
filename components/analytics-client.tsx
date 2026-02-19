@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useIsMobile } from '@/lib/hooks/use-media-query';
 import {
@@ -44,6 +44,7 @@ interface RevenueTrendItem {
   liquor: number;
   wine: number;
   beer: number;
+  locationCount: number;
 }
 
 interface CategoryMix {
@@ -104,6 +105,7 @@ interface AnalyticsData {
   industrySegmentMix: IndustrySegmentItem[];
   ownershipGroups: OwnershipGroupItem[];
   monthlyGrowth: MonthlyGrowthItem[];
+  comparisonMode: string | null;
 }
 
 interface OcrSearchResult {
@@ -283,6 +285,148 @@ function currencyTickFormatter(value: number): string {
   return formatCurrencyCompact(value);
 }
 
+// Month short names for overlay x-axis
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Colors for multi-year overlays
+const YEAR_COLORS = ['#0d7377', '#ec4899', '#6366f1', '#22c55e', '#f59e0b', '#ef4444'];
+
+/**
+ * Transform flat revenueTrend data into overlaid year-by-year rows.
+ * Each row has { monthLabel: "Jan", "2023": 1234, "2024": 5678, ... }
+ * This lets us overlay years on a shared Jan-Dec x-axis.
+ */
+function buildYearOverlayData(revenueTrend: RevenueTrendItem[]): { data: Record<string, unknown>[]; years: string[] } {
+  // Group by year → month
+  const yearMap: Record<string, Record<number, number>> = {};
+  for (const row of revenueTrend) {
+    const [yearStr, monthStr] = row.month.split('-');
+    const monthIdx = parseInt(monthStr, 10); // 1-12
+    if (!yearMap[yearStr]) yearMap[yearStr] = {};
+    yearMap[yearStr][monthIdx] = row.total;
+  }
+
+  const years = Object.keys(yearMap).sort();
+
+  // Build rows for months 1-12
+  const data: Record<string, unknown>[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const row: Record<string, unknown> = { monthLabel: MONTH_SHORT[m - 1], monthNum: m };
+    let hasAny = false;
+    for (const y of years) {
+      if (yearMap[y][m] !== undefined) {
+        row[y] = yearMap[y][m];
+        hasAny = true;
+      }
+    }
+    if (hasAny) data.push(row);
+  }
+
+  return { data, years };
+}
+
+/**
+ * Build MoM comparison data — bar chart with current vs prior month.
+ */
+function buildMomData(revenueTrend: RevenueTrendItem[]): { data: { label: string; revenue: number }[]; labels: string[] } {
+  if (revenueTrend.length < 2) {
+    return { data: [], labels: [] };
+  }
+  // Take the last two complete months
+  const sorted = [...revenueTrend].sort((a, b) => a.month.localeCompare(b.month));
+  const prev = sorted[sorted.length - 2];
+  const curr = sorted[sorted.length - 1];
+
+  const formatLabel = (m: string) => {
+    const [y, mo] = m.split('-');
+    return `${MONTH_SHORT[parseInt(mo, 10) - 1]} ${y}`;
+  };
+
+  return {
+    data: [
+      { label: formatLabel(prev.month), revenue: prev.total },
+      { label: formatLabel(curr.month), revenue: curr.total },
+    ],
+    labels: [formatLabel(prev.month), formatLabel(curr.month)],
+  };
+}
+
+/**
+ * Build 90/90 comparison data — overlay current 3-month period vs same period last year.
+ */
+function build90over90Data(revenueTrend: RevenueTrendItem[]): { data: Record<string, unknown>[]; periods: string[]; currentTotal: number; priorTotal: number; changePercent: number; changeDollar: number } {
+  const sorted = [...revenueTrend].sort((a, b) => a.month.localeCompare(b.month));
+  if (sorted.length < 3) return { data: [], periods: [], currentTotal: 0, priorTotal: 0, changePercent: 0, changeDollar: 0 };
+
+  // Find the last 3 complete months
+  const recent3 = sorted.slice(-3);
+  const currentLabel = `${MONTH_SHORT[parseInt(recent3[0].month.split('-')[1], 10) - 1]}–${MONTH_SHORT[parseInt(recent3[2].month.split('-')[1], 10) - 1]} ${recent3[2].month.split('-')[0]}`;
+
+  // Find matching months from prior year (zero-pad month for matching)
+  const prior3: RevenueTrendItem[] = [];
+  for (const r of recent3) {
+    const [y, m] = r.month.split('-');
+    const priorMonth = `${parseInt(y, 10) - 1}-${m}`; // m is already zero-padded from the data
+    const match = sorted.find(s => s.month === priorMonth);
+    if (match) prior3.push(match);
+  }
+
+  if (prior3.length < 1) return { data: [], periods: [], currentTotal: 0, priorTotal: 0, changePercent: 0, changeDollar: 0 };
+  const priorLabel = `${MONTH_SHORT[parseInt(prior3[0].month.split('-')[1], 10) - 1]}–${MONTH_SHORT[parseInt(prior3[prior3.length - 1].month.split('-')[1], 10) - 1]} ${prior3[prior3.length - 1].month.split('-')[0]}`;
+
+  // Build data for individual months + a TOTAL bar
+  const data: Record<string, unknown>[] = [];
+  let currentTotal = 0;
+  let priorTotal = 0;
+  for (let i = 0; i < recent3.length; i++) {
+    const monthNum = parseInt(recent3[i].month.split('-')[1], 10);
+    const row: Record<string, unknown> = {
+      monthLabel: MONTH_SHORT[monthNum - 1],
+      [currentLabel]: recent3[i].total,
+    };
+    currentTotal += recent3[i].total;
+    if (prior3[i]) {
+      row[priorLabel] = prior3[i].total;
+      priorTotal += prior3[i].total;
+    }
+    data.push(row);
+  }
+
+  // Append total bar
+  data.push({
+    monthLabel: 'TOTAL',
+    [currentLabel]: currentTotal,
+    [priorLabel]: priorTotal,
+  });
+
+  // Compute change for summary
+  const changePercent = priorTotal > 0 ? ((currentTotal - priorTotal) / priorTotal) * 100 : 0;
+  const changeDollar = currentTotal - priorTotal;
+
+  return { data, periods: [currentLabel, priorLabel], currentTotal, priorTotal, changePercent, changeDollar };
+}
+
+/**
+ * Compute a zoomed Y-axis domain from overlay data.
+ * Finds min/max across all year values, adds 5% padding on each side.
+ */
+function computeZoomedDomain(data: Record<string, unknown>[], keys: string[]): [number, number] {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const row of data) {
+    for (const k of keys) {
+      const v = row[k] as number | undefined;
+      if (v !== undefined && v !== null) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+    }
+  }
+  if (min === Infinity || max === -Infinity) return [0, 1];
+  const padding = (max - min) * 0.08;
+  return [Math.max(0, Math.floor(min - padding)), Math.ceil(max + padding)];
+}
+
 // ============================================
 // Sub-components
 // ============================================
@@ -349,10 +493,19 @@ export default function AnalyticsClient() {
   const [segmentTopN, setSegmentTopN] = useState(10);
   const [showSegmentOther, setShowSegmentOther] = useState(false);
 
-  // Ownership state
+  // Ownership state — search & compare
   const [ownershipSort, setOwnershipSort] = useState<SortField>('totalRevenue');
   const [ownershipDir, setOwnershipDir] = useState<SortDir>('desc');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [ownershipSearch, setOwnershipSearch] = useState('');
+  const [ownershipSearchResults, setOwnershipSearchResults] = useState<{ group: string; locationCount: number; totalRevenue: number }[]>([]);
+  const [ownershipSearchLoading, setOwnershipSearchLoading] = useState(false);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [comparedGroups, setComparedGroups] = useState<any[]>([]);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [expandedCompareGroup, setExpandedCompareGroup] = useState<string | null>(null);
+  const [segmentFilter, setSegmentFilter] = useState<string | null>(null);
+  const ownershipSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // OCR Search state
   const [ocrQuery, setOcrQuery] = useState('');
@@ -555,6 +708,86 @@ export default function AnalyticsClient() {
     return { totalGroups, totalLocations, totalRevenue, avgRevPerGroup };
   }, [analyticsData]);
 
+  // ----------------------------------------
+  // Ownership: search groups (debounced)
+  // ----------------------------------------
+
+  useEffect(() => {
+    if (ownershipSearchRef.current) clearTimeout(ownershipSearchRef.current);
+    if (!ownershipSearch.trim()) {
+      setOwnershipSearchResults([]);
+      return;
+    }
+    ownershipSearchRef.current = setTimeout(async () => {
+      setOwnershipSearchLoading(true);
+      try {
+        const monthsBack = period === 'all' ? '120' : period;
+        const res = await fetch(`/api/analytics/ownership?search=${encodeURIComponent(ownershipSearch)}&monthsBack=${monthsBack}`);
+        if (res.ok) {
+          const data = await res.json();
+          setOwnershipSearchResults(data.results || []);
+        }
+      } catch {}
+      setOwnershipSearchLoading(false);
+    }, 350);
+    return () => { if (ownershipSearchRef.current) clearTimeout(ownershipSearchRef.current); };
+  }, [ownershipSearch, period]);
+
+  // ----------------------------------------
+  // Ownership: fetch comparison details
+  // ----------------------------------------
+
+  const fetchCompareGroups = useCallback(async (groups: string[]) => {
+    if (groups.length === 0) { setComparedGroups([]); return; }
+    setCompareLoading(true);
+    try {
+      const monthsBack = period === 'all' ? '120' : period;
+      const res = await fetch(`/api/analytics/ownership?groups=${encodeURIComponent(groups.join(','))}&monthsBack=${monthsBack}`);
+      if (res.ok) {
+        const data = await res.json();
+        const newGroups = data.groups || [];
+        // Merge with existing rather than replacing
+        setComparedGroups(prev => {
+          const merged = [...prev];
+          for (const ng of newGroups) {
+            const idx = merged.findIndex((g: any) => g.group === ng.group);
+            if (idx >= 0) merged[idx] = ng;
+            else merged.push(ng);
+          }
+          return merged;
+        });
+      }
+    } catch {}
+    setCompareLoading(false);
+  }, [period]);
+
+  const addGroupToCompare = (groupName: string) => {
+    if (selectedGroups.includes(groupName)) return;
+    const next = [...selectedGroups, groupName];
+    setSelectedGroups(next);
+    // Auto-fetch detail for the newly added group
+    fetchCompareGroups([groupName]);
+  };
+
+  const removeGroupFromCompare = (groupName: string) => {
+    const next = selectedGroups.filter(g => g !== groupName);
+    setSelectedGroups(next);
+    setComparedGroups(prev => prev.filter((g: any) => g.group !== groupName));
+    if (next.length === 0) setSegmentFilter(null);
+    if (expandedCompareGroup === groupName) setExpandedCompareGroup(null);
+  };
+
+  // All segments across compared groups
+  const allCompareSegments = useMemo(() => {
+    const segs = new Set<string>();
+    for (const g of comparedGroups) {
+      for (const s of (g.segments || [])) {
+        if (s.segment && s.segment !== 'Unknown') segs.add(s.segment);
+      }
+    }
+    return Array.from(segs).sort();
+  }, [comparedGroups]);
+
   // ============================================
   // Render: Tabs
   // ============================================
@@ -711,30 +944,137 @@ export default function AnalyticsClient() {
           </div>
         </div>
 
-        {/* Revenue Trend Line Chart */}
+        {/* Revenue Trend / Comparison Chart */}
         <div style={s.chartSection}>
-          <h3 style={s.chartTitle}>Revenue Trend</h3>
-          <div style={{ width: '100%', height: isMobile ? 260 : 340 }}>
+          <h3 style={s.chartTitle}>
+            {comparisonMode === 'yoy' ? 'Year over Year Comparison'
+              : comparisonMode === 'mom' ? 'Month over Month Comparison'
+              : comparisonMode === '90over90' ? '90-Day vs Prior Year 90-Day'
+              : comparisonMode === '3yr' ? '3-Year Trend (Year over Year)'
+              : comparisonMode === '5yr' ? '5-Year Trend (Year over Year)'
+              : 'Revenue Trend'}
+          </h3>
+          <div style={{ width: '100%', height: isMobile ? 280 : 380 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={revenueTrend} margin={{ top: 5, right: 10, left: isMobile ? 0 : 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  interval={isMobile ? Math.max(Math.floor(revenueTrend.length / 4), 1) : 'preserveStartEnd'}
-                />
-                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={currencyTickFormatter} width={isMobile ? 48 : 60} />
-                <Tooltip
-                  formatter={(value: number, name: string) => [formatCurrencyFull(value), name.charAt(0).toUpperCase() + name.slice(1)]}
-                  labelStyle={{ fontWeight: 600 }}
-                  contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                />
-                <Legend wrapperStyle={{ fontSize: '12px' }} />
-                <Line type="monotone" dataKey="total" stroke={CHART_COLORS.total} strokeWidth={2.5} dot={false} name="Total" />
-                <Line type="monotone" dataKey="liquor" stroke={CHART_COLORS.liquor} strokeWidth={1.5} dot={false} name="Liquor" />
-                <Line type="monotone" dataKey="wine" stroke={CHART_COLORS.wine} strokeWidth={1.5} dot={false} name="Wine" />
-                <Line type="monotone" dataKey="beer" stroke={CHART_COLORS.beer} strokeWidth={1.5} dot={false} name="Beer" />
-              </LineChart>
+              {/* MoM: Side-by-side bar chart */}
+              {comparisonMode === 'mom' ? (() => {
+                const mom = buildMomData(revenueTrend);
+                if (mom.data.length === 0) return <LineChart data={[]}><XAxis /><YAxis /></LineChart>;
+                const prevVal = mom.data[0].revenue;
+                const currVal = mom.data[1].revenue;
+                const change = prevVal > 0 ? ((currVal - prevVal) / prevVal) * 100 : 0;
+                return (
+                  <BarChart data={mom.data} margin={{ top: 20, right: 10, left: isMobile ? 0 : 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 13, fill: '#334155', fontWeight: 600 }} />
+                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={currencyTickFormatter} width={isMobile ? 48 : 60} />
+                    <Tooltip formatter={(value: number) => formatCurrencyFull(value)} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                    <Bar dataKey="revenue" name="Revenue" radius={[6, 6, 0, 0]}>
+                      <Cell fill="#94a3b8" />
+                      <Cell fill={change >= 0 ? '#22c55e' : '#ef4444'} />
+                    </Bar>
+                    {/* Change annotation */}
+                    <Legend content={() => (
+                      <div style={{ textAlign: 'center', fontSize: '15px', fontWeight: 700, color: change >= 0 ? '#16a34a' : '#dc2626', marginTop: '8px' }}>
+                        {change >= 0 ? '\u25B2' : '\u25BC'} {change >= 0 ? '+' : ''}{change.toFixed(1)}% ({formatCurrencyCompact(currVal - prevVal)})
+                      </div>
+                    )} />
+                  </BarChart>
+                );
+              })()
+
+              /* 90/90: Paired bar chart with individual months + TOTAL + summary */
+              : comparisonMode === '90over90' ? (() => {
+                const d90 = build90over90Data(revenueTrend);
+                if (d90.data.length === 0 || d90.periods.length < 2) return <LineChart data={[]}><XAxis /><YAxis /></LineChart>;
+                return (
+                  <BarChart data={d90.data} margin={{ top: 5, right: 10, left: isMobile ? 0 : 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis
+                      dataKey="monthLabel"
+                      tick={{ fontSize: 12, fill: '#64748b' }}
+                    />
+                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={currencyTickFormatter} width={isMobile ? 48 : 60} />
+                    <Tooltip formatter={(value: number) => formatCurrencyFull(value)} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                    <Legend content={() => {
+                      const cp = d90.changePercent ?? 0;
+                      const cd = d90.changeDollar ?? 0;
+                      return (
+                        <div style={{ textAlign: 'center', marginTop: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
+                            <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#94a3b8', borderRadius: 2, marginRight: 4, verticalAlign: 'middle' }} />{d90.periods[1]}</span>
+                            <span><span style={{ display: 'inline-block', width: 12, height: 12, background: BRAND.primary, borderRadius: 2, marginRight: 4, verticalAlign: 'middle' }} />{d90.periods[0]}</span>
+                          </div>
+                          <div style={{ fontSize: '15px', fontWeight: 700, color: cp >= 0 ? '#16a34a' : '#dc2626' }}>
+                            {cp >= 0 ? '\u25B2' : '\u25BC'} {cp >= 0 ? '+' : ''}{cp.toFixed(1)}% ({cp >= 0 ? '+' : ''}{formatCurrencyCompact(cd)})
+                          </div>
+                        </div>
+                      );
+                    }} />
+                    <Bar dataKey={d90.periods[1]} fill="#94a3b8" radius={[4, 4, 0, 0]} name={d90.periods[1]} />
+                    <Bar dataKey={d90.periods[0]} fill={BRAND.primary} radius={[4, 4, 0, 0]} name={d90.periods[0]} />
+                  </BarChart>
+                );
+              })()
+
+              /* YoY / 3yr / 5yr: Overlaid year lines on Jan-Dec x-axis with zoomed Y */
+              : (comparisonMode === 'yoy' || comparisonMode === '3yr' || comparisonMode === '5yr') ? (() => {
+                const overlay = buildYearOverlayData(revenueTrend);
+                if (overlay.data.length === 0) return <LineChart data={[]}><XAxis /><YAxis /></LineChart>;
+                const yDomain = computeZoomedDomain(overlay.data, overlay.years);
+                // Build lines array to avoid .map() inside JSX (Recharts stability)
+                const lines = overlay.years.map((year, i) => (
+                  <Line
+                    key={year}
+                    type="monotone"
+                    dataKey={year}
+                    stroke={YEAR_COLORS[i % YEAR_COLORS.length]}
+                    strokeWidth={i === overlay.years.length - 1 ? 3 : 1.5}
+                    strokeDasharray={i === overlay.years.length - 1 ? undefined : '6 3'}
+                    dot={i === overlay.years.length - 1 ? { r: 3 } : false}
+                    name={year}
+                    connectNulls
+                  />
+                ));
+                return (
+                  <LineChart data={overlay.data} margin={{ top: 5, right: 10, left: isMobile ? 0 : 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="monthLabel" tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: '#64748b' }}
+                      tickFormatter={currencyTickFormatter}
+                      width={isMobile ? 48 : 60}
+                      domain={yDomain}
+                    />
+                    <Tooltip formatter={(value: number, name: string) => [formatCurrencyFull(value), name]} labelStyle={{ fontWeight: 600 }} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                    {lines}
+                  </LineChart>
+                );
+              })()
+
+              /* Default: Standard revenue trend line chart */
+              : (
+                <LineChart data={revenueTrend} margin={{ top: 5, right: 10, left: isMobile ? 0 : 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    interval={isMobile ? Math.max(Math.floor(revenueTrend.length / 4), 1) : 'preserveStartEnd'}
+                  />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={currencyTickFormatter} width={isMobile ? 48 : 60} />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [formatCurrencyFull(value), name.charAt(0).toUpperCase() + name.slice(1)]}
+                    labelStyle={{ fontWeight: 600 }}
+                    contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
+                  <Line type="monotone" dataKey="total" stroke={CHART_COLORS.total} strokeWidth={2.5} dot={false} name="Total" />
+                  <Line type="monotone" dataKey="liquor" stroke={CHART_COLORS.liquor} strokeWidth={1.5} dot={false} name="Liquor" />
+                  <Line type="monotone" dataKey="wine" stroke={CHART_COLORS.wine} strokeWidth={1.5} dot={false} name="Wine" />
+                  <Line type="monotone" dataKey="beer" stroke={CHART_COLORS.beer} strokeWidth={1.5} dot={false} name="Beer" />
+                </LineChart>
+              )}
             </ResponsiveContainer>
           </div>
         </div>
@@ -1028,44 +1368,45 @@ export default function AnalyticsClient() {
   // ============================================
 
   const renderOwnership = () => {
-    if (analyticsLoading) return <OverviewSkeleton />;
+    // Client-side filter of ownership groups table by search text
+    const searchLower = ownershipSearch.trim().toLowerCase();
+    const filteredGroups = searchLower
+      ? sortedOwnershipGroups.filter(g => g.group.toLowerCase().includes(searchLower))
+      : sortedOwnershipGroups;
 
-    if (analyticsError) {
-      return (
-        <div style={s.errorContainer}>
-          <p style={s.errorText}>Error: {analyticsError}</p>
-          <button onClick={() => { cacheRef.current = {}; fetchAnalytics(period, categoryFilter, comparisonMode); }} style={s.retryButton}>
-            Retry
-          </button>
-        </div>
-      );
-    }
+    // Helpers for expanded group detail (segments + locations)
+    const getFilteredLocations = (group: any) => {
+      if (!segmentFilter) return group.locations || [];
+      return (group.locations || []).filter((l: any) => l.segment === segmentFilter);
+    };
 
-    if (!analyticsData) return null;
+    const getFilteredRevenue = (group: any) => {
+      if (!segmentFilter) return group.totalRevenue;
+      return (group.locations || [])
+        .filter((l: any) => l.segment === segmentFilter)
+        .reduce((sum: number, l: any) => sum + l.revenue, 0);
+    };
 
-    const { industrySegmentMix } = analyticsData;
+    // Build comparison bar chart data (only when comparing)
+    const compareBarData = comparedGroups.map((g, i) => ({
+      group: g.group,
+      revenue: segmentFilter
+        ? (g.locations || []).filter((l: any) => l.segment === segmentFilter).reduce((sum: number, l: any) => sum + l.revenue, 0)
+        : g.totalRevenue,
+      fill: YEAR_COLORS[i % YEAR_COLORS.length],
+    }));
 
-    // Industry segment bar chart data for ownership context — Top N with optional "Other"
-    const sortedOwnershipSegments = [...industrySegmentMix]
-      .filter((seg) => seg.revenue > 0)
-      .sort((a, b) => b.revenue - a.revenue);
-    const topOwnershipSegments = sortedOwnershipSegments.slice(0, segmentTopN);
-    const remainingOwnershipSegments = sortedOwnershipSegments.slice(segmentTopN);
-    const segmentBarData = [...topOwnershipSegments];
-    if (showSegmentOther && remainingOwnershipSegments.length > 0) {
-      const otherRevenue = remainingOwnershipSegments.reduce((sum, seg) => sum + seg.revenue, 0);
-      const otherCount = remainingOwnershipSegments.reduce((sum, seg) => sum + seg.customerCount, 0);
-      segmentBarData.push({ segment: 'Other', revenue: otherRevenue, customerCount: otherCount });
-    }
+    // Check if we're in compare mode
+    const isCompareMode = selectedGroups.length > 0;
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* Period selector (same data source) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Period selector */}
         <div style={s.periodRow}>
           {PERIODS.map((p) => (
             <button
               key={p.key}
-              onClick={() => setPeriod(p.key)}
+              onClick={() => { setPeriod(p.key); if (selectedGroups.length > 0) fetchCompareGroups(selectedGroups); }}
               style={{
                 ...s.periodPill,
                 ...(period === p.key ? s.periodPillActive : {}),
@@ -1077,211 +1418,331 @@ export default function AnalyticsClient() {
         </div>
 
         {/* Summary Stats */}
-        <div style={s.kpiGrid}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr 1fr', gap: '12px' }}>
           <div style={s.kpiCard}>
-            <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatNumber(ownershipSummary.totalGroups)}</div>
-              <div style={s.kpiLabel}>Ownership Groups</div>
-            </div>
+            <div style={s.kpiLabel}>Ownership Groups</div>
+            <div style={s.kpiValue}>{formatNumber(ownershipSummary.totalGroups)}</div>
           </div>
           <div style={s.kpiCard}>
-            <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatNumber(ownershipSummary.totalLocations)}</div>
-              <div style={s.kpiLabel}>Total Locations</div>
-            </div>
+            <div style={s.kpiLabel}>Total Locations</div>
+            <div style={s.kpiValue}>{formatNumber(ownershipSummary.totalLocations)}</div>
           </div>
           <div style={s.kpiCard}>
-            <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatCurrencyCompact(ownershipSummary.totalRevenue)}</div>
-              <div style={s.kpiLabel}>Total Revenue</div>
-            </div>
+            <div style={s.kpiLabel}>Total Revenue</div>
+            <div style={s.kpiValue}>{formatCurrencyCompact(ownershipSummary.totalRevenue)}</div>
           </div>
           <div style={s.kpiCard}>
-            <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatCurrencyCompact(ownershipSummary.avgRevPerGroup)}</div>
-              <div style={s.kpiLabel}>Avg Rev / Group</div>
-            </div>
+            <div style={s.kpiLabel}>Avg Rev/Group</div>
+            <div style={s.kpiValue}>{formatCurrencyCompact(ownershipSummary.avgRevPerGroup)}</div>
           </div>
         </div>
 
-        {/* Sortable Ownership Table */}
+        {/* Search + Compare Controls */}
         <div style={s.chartSection}>
-          <h3 style={s.chartTitle}>Ownership Groups</h3>
-          {sortedOwnershipGroups.length === 0 ? (
-            <div style={s.emptyMini}>No ownership groups available</div>
-          ) : (
-            <div style={s.tableWrap}>
-              <table style={s.table}>
-                <thead>
-                  <tr>
-                    <th style={{ ...s.th, cursor: 'pointer' }} onClick={() => handleOwnershipSort('group')}>
-                      Group{sortIndicator('group')}
-                    </th>
-                    <th
-                      style={{ ...s.th, textAlign: 'right', cursor: 'pointer' }}
-                      onClick={() => handleOwnershipSort('locationCount')}
-                    >
-                      Locations{sortIndicator('locationCount')}
-                    </th>
-                    <th
-                      style={{ ...s.th, textAlign: 'right', cursor: 'pointer' }}
-                      onClick={() => handleOwnershipSort('totalRevenue')}
-                    >
-                      Total Revenue{sortIndicator('totalRevenue')}
-                    </th>
-                    <th
-                      style={{ ...s.th, textAlign: 'right', cursor: 'pointer' }}
-                      onClick={() => handleOwnershipSort('avgRevenuePerLocation')}
-                    >
-                      Avg Rev / Location{sortIndicator('avgRevenuePerLocation')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedOwnershipGroups.map((group) => {
-                    const isExpanded = expandedGroup === group.group;
-                    return (
-                      <tr
-                        key={group.group}
-                        onClick={() => setExpandedGroup(isExpanded ? null : group.group)}
-                        style={{
-                          ...s.tr,
-                          cursor: 'pointer',
-                          background: isExpanded ? BRAND.primaryLight : undefined,
-                        }}
-                      >
-                        <td style={s.td}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span
-                              style={{
-                                fontSize: '10px',
-                                color: '#94a3b8',
-                                transition: 'transform 0.15s',
-                                display: 'inline-block',
-                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                              }}
-                            >
-                              {'\u25B6'}
-                            </span>
-                            <span style={{ fontWeight: 500, color: '#1e293b' }}>
-                              {group.group || 'Unknown'}
-                            </span>
-                          </div>
-                          {isExpanded && (
-                            <div style={s.expandedGroupInfo}>
-                              <div style={s.expandedGroupLabel}>Group Details</div>
-                              <div style={s.expandedGroupRow}>
-                                <span style={s.expandedGroupKey}>Locations:</span>
-                                <span>{group.locationCount}</span>
-                              </div>
-                              <div style={s.expandedGroupRow}>
-                                <span style={s.expandedGroupKey}>Total Revenue:</span>
-                                <span>{formatCurrencyFull(group.totalRevenue)}</span>
-                              </div>
-                              <div style={s.expandedGroupRow}>
-                                <span style={s.expandedGroupKey}>Avg per Location:</span>
-                                <span>{formatCurrencyFull(group.avgRevenuePerLocation)}</span>
-                              </div>
-                              <div style={{ ...s.expandedGroupRow, marginTop: '8px' }}>
-                                <div style={s.miniBarTrack}>
-                                  <div
-                                    style={{
-                                      ...s.miniBarFill,
-                                      width: `${Math.min(
-                                        (group.totalRevenue / (ownershipSummary.totalRevenue || 1)) * 100 * 5,
-                                        100
-                                      )}%`,
-                                    }}
-                                  />
-                                </div>
-                                <span style={{ fontSize: '11px', color: '#64748b' }}>
-                                  {((group.totalRevenue / (ownershipSummary.totalRevenue || 1)) * 100).toFixed(1)}% of total
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right', verticalAlign: 'top' }}>
-                          {formatNumber(group.locationCount)}
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right', verticalAlign: 'top' }}>
-                          {formatCurrencyCompact(group.totalRevenue)}
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right', verticalAlign: 'top' }}>
-                          {formatCurrencyCompact(group.avgRevenuePerLocation)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {/* Search input */}
+            <div style={{ flex: 1, minWidth: '200px', position: 'relative' }}>
+              <input
+                type="text"
+                placeholder="Filter ownership groups..."
+                value={ownershipSearch}
+                onChange={(e) => setOwnershipSearch(e.target.value)}
+                style={{ width: '100%', padding: '8px 14px', paddingRight: ownershipSearch ? '32px' : '14px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', outline: 'none', background: 'white' }}
+              />
+              {ownershipSearch && (
+                <button
+                  onClick={() => setOwnershipSearch('')}
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#94a3b8', padding: '2px 4px' }}
+                >
+                  {'\u2715'}
+                </button>
+              )}
+            </div>
+
+            {/* Compare button / indicator */}
+            {selectedGroups.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={() => fetchCompareGroups(selectedGroups)}
+                  style={{ padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, color: 'white', background: BRAND.primary, border: 'none', cursor: 'pointer' }}
+                >
+                  Compare ({selectedGroups.length})
+                </button>
+                <button
+                  onClick={() => { setSelectedGroups([]); setComparedGroups([]); setSegmentFilter(null); setExpandedCompareGroup(null); }}
+                  style={{ padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 500, color: '#64748b', background: '#f1f5f9', border: '1px solid #e2e8f0', cursor: 'pointer' }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
+            {/* Result count */}
+            <span style={{ fontSize: '12px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+              {filteredGroups.length} group{filteredGroups.length !== 1 ? 's' : ''}
+              {searchLower ? ' found' : ''}
+            </span>
+          </div>
+
+          {/* Selected groups chips */}
+          {selectedGroups.length > 0 && (
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+              {selectedGroups.map((g, i) => (
+                <span key={g} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '16px', fontSize: '12px', fontWeight: 600, color: 'white', background: YEAR_COLORS[i % YEAR_COLORS.length] }}>
+                  {g}
+                  <button
+                    onClick={() => removeGroupFromCompare(g)}
+                    style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '14px', fontWeight: 700, padding: '0 2px', lineHeight: 1, opacity: 0.8 }}
+                  >
+                    {'\u00D7'}
+                  </button>
+                </span>
+              ))}
             </div>
           )}
         </div>
 
-        {/* Industry Segment Bar Chart */}
+        {/* Ownership Groups Table */}
         <div style={s.chartSection}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-            <h3 style={{ ...s.chartTitle, marginBottom: 0 }}>Revenue by Industry Segment</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <button
-                  onClick={() => setSegmentTopN(Math.max(5, segmentTopN - 1))}
-                  style={s.segmentNButton}
-                  title="Show fewer segments"
-                >
-                  -
-                </button>
-                <span style={{ fontSize: '12px', color: '#64748b', minWidth: '32px', textAlign: 'center' }}>
-                  Top {segmentTopN}
-                </span>
-                <button
-                  onClick={() => setSegmentTopN(Math.min(20, segmentTopN + 1))}
-                  style={s.segmentNButton}
-                  title="Show more segments"
-                >
-                  +
-                </button>
-              </div>
-              <button
-                onClick={() => setShowSegmentOther(!showSegmentOther)}
-                style={{
-                  ...s.segmentOtherToggle,
-                  ...(showSegmentOther ? s.segmentOtherToggleActive : {}),
-                }}
-              >
-                {showSegmentOther ? 'Hide Other' : 'Show Other'}
-              </button>
-            </div>
+          <div style={s.tableWrap}>
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...s.th, width: '36px', textAlign: 'center' }}>
+                    <span style={{ fontSize: '11px', color: '#94a3b8' }} title="Select to compare">+/-</span>
+                  </th>
+                  <th style={{ ...s.th, cursor: 'pointer' }} onClick={() => handleOwnershipSort('group')}>
+                    Ownership Group{sortIndicator('group')}
+                  </th>
+                  <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('locationCount')}>
+                    Locations{sortIndicator('locationCount')}
+                  </th>
+                  <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('totalRevenue')}>
+                    Total Revenue{sortIndicator('totalRevenue')}
+                  </th>
+                  <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('avgRevenuePerLocation')}>
+                    Avg/Location{sortIndicator('avgRevenuePerLocation')}
+                  </th>
+                  <th style={{ ...s.th, width: '50px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredGroups.map((g) => {
+                  const isSelected = selectedGroups.includes(g.group);
+                  const isExpanded = expandedCompareGroup === g.group;
+                  const detail = comparedGroups.find((cg: any) => cg.group === g.group);
+
+                  return (
+                    <React.Fragment key={g.group}>
+                      <tr
+                        style={{ ...s.tr, background: isSelected ? '#f0fdf4' : isExpanded ? '#f8fafc' : undefined, cursor: 'pointer' }}
+                        onClick={(e) => {
+                          // Don't toggle expand if clicking the checkbox
+                          if ((e.target as HTMLElement).tagName === 'INPUT') return;
+                          if (isExpanded) {
+                            setExpandedCompareGroup(null);
+                          } else {
+                            setExpandedCompareGroup(g.group);
+                            if (!detail) fetchCompareGroups([g.group]);
+                          }
+                        }}
+                      >
+                        {/* Checkbox */}
+                        <td style={{ ...s.td, textAlign: 'center', padding: '6px 4px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              if (isSelected) {
+                                removeGroupFromCompare(g.group);
+                              } else {
+                                addGroupToCompare(g.group);
+                              }
+                            }}
+                            style={{ cursor: 'pointer', accentColor: BRAND.primary }}
+                          />
+                        </td>
+                        {/* Group name */}
+                        <td style={{ ...s.td, fontWeight: 600, color: '#1e293b' }}>
+                          {g.group}
+                        </td>
+                        {/* Location count */}
+                        <td style={{ ...s.td, textAlign: 'right' }}>
+                          {formatNumber(g.locationCount)}
+                        </td>
+                        {/* Total revenue */}
+                        <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, color: BRAND.primary }}>
+                          {formatCurrencyCompact(g.totalRevenue)}
+                        </td>
+                        {/* Avg per location */}
+                        <td style={{ ...s.td, textAlign: 'right', color: '#64748b' }}>
+                          {formatCurrencyCompact(g.avgRevenuePerLocation)}
+                        </td>
+                        {/* Expand arrow */}
+                        <td style={{ ...s.td, textAlign: 'center', padding: '6px 4px' }}>
+                          <span style={{ fontSize: '12px', color: '#64748b', display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                            {'\u25B6'}
+                          </span>
+                        </td>
+                      </tr>
+
+                      {/* Expanded row detail: segments + locations */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={6} style={{ padding: 0, background: '#f8fafc' }}>
+                            <div style={{ padding: '16px 20px', borderTop: '1px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}>
+                              {compareLoading && !detail && (
+                                <div style={{ textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: '13px' }}>Loading details...</div>
+                              )}
+
+                              {detail && (
+                                <>
+                                  {/* Segments */}
+                                  {detail.segments && detail.segments.length > 0 && (
+                                    <div style={{ marginBottom: '14px' }}>
+                                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Market Segments</div>
+                                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {detail.segments.map((seg: any) => (
+                                          <span
+                                            key={seg.segment}
+                                            onClick={() => setSegmentFilter(segmentFilter === seg.segment ? null : (seg.segment === 'Unknown' ? null : seg.segment))}
+                                            style={{
+                                              padding: '4px 12px',
+                                              borderRadius: '14px',
+                                              fontSize: '12px',
+                                              fontWeight: 600,
+                                              background: segmentFilter === seg.segment ? BRAND.primary : '#e2e8f0',
+                                              color: segmentFilter === seg.segment ? 'white' : '#475569',
+                                              cursor: seg.segment === 'Unknown' ? 'default' : 'pointer',
+                                              border: '1px solid transparent',
+                                            }}
+                                          >
+                                            {seg.segment} ({seg.locationCount}) &mdash; {formatCurrencyCompact(seg.revenue)}
+                                          </span>
+                                        ))}
+                                        {segmentFilter && (
+                                          <button
+                                            onClick={() => setSegmentFilter(null)}
+                                            style={{ padding: '4px 10px', borderRadius: '14px', fontSize: '11px', fontWeight: 500, color: '#64748b', background: '#f1f5f9', border: '1px solid #e2e8f0', cursor: 'pointer' }}
+                                          >
+                                            Clear filter
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Locations dropdown sorted by name */}
+                                  {(() => {
+                                    const locs = getFilteredLocations(detail)
+                                      .slice()
+                                      .sort((a: any, b: any) => (a.name || a.permit).localeCompare(b.name || b.permit));
+                                    return locs.length > 0 ? (
+                                      <div>
+                                        <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                          Locations{segmentFilter ? ` — ${segmentFilter}` : ''} ({locs.length})
+                                        </div>
+                                        <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: 'white' }}>
+                                          {locs.map((loc: any, li: number) => (
+                                            <Link
+                                              key={loc.permit}
+                                              href={`/customers/${loc.permit}`}
+                                              style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '8px 14px',
+                                                borderBottom: li < locs.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                                textDecoration: 'none',
+                                                color: '#1e293b',
+                                                fontSize: '13px',
+                                              }}
+                                            >
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                                <span style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                  {loc.name || loc.permit}
+                                                </span>
+                                                <span style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{loc.city}</span>
+                                                {!segmentFilter && loc.segment && loc.segment !== 'Unknown' && (
+                                                  <span style={{ fontSize: '10px', color: '#64748b', background: '#f1f5f9', padding: '1px 6px', borderRadius: '8px', whiteSpace: 'nowrap' }}>{loc.segment}</span>
+                                                )}
+                                              </div>
+                                              <span style={{ fontSize: '12px', fontWeight: 600, color: BRAND.primary, whiteSpace: 'nowrap', marginLeft: '12px' }}>
+                                                {formatCurrencyCompact(loc.revenue)}
+                                              </span>
+                                            </Link>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null;
+                                  })()}
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-          {segmentBarData.length === 0 ? (
-            <div style={s.emptyMini}>No segment data available</div>
-          ) : (
-            <div style={{ width: '100%', height: isMobile ? 260 : 320 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={segmentBarData}
-                  layout="vertical"
-                  margin={{ top: 5, right: 10, left: isMobile ? 80 : 140, bottom: 5 }}
+
+          {filteredGroups.length === 0 && searchLower && (
+            <div style={{ textAlign: 'center', padding: '30px 0', color: '#94a3b8', fontSize: '14px' }}>
+              No ownership groups match &ldquo;{ownershipSearch}&rdquo;
+            </div>
+          )}
+        </div>
+
+        {/* Comparison Section — shown when 2+ groups are selected and compared */}
+        {!compareLoading && comparedGroups.length >= 2 && isCompareMode && (
+          <div style={s.chartSection}>
+            <h3 style={s.chartTitle}>
+              Revenue Comparison{segmentFilter ? ` — ${segmentFilter}` : ''}
+            </h3>
+
+            {/* Segment Filter Pills for comparison */}
+            {allCompareSegments.length > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500 }}>Segment:</span>
+                <button
+                  onClick={() => setSegmentFilter(null)}
+                  style={{ ...s.periodPill, ...(segmentFilter === null ? s.periodPillActive : {}) }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={currencyTickFormatter} />
-                  <YAxis
-                    type="category"
-                    dataKey="segment"
-                    tick={{ fontSize: 11, fill: '#64748b' }}
-                    width={isMobile ? 75 : 135}
-                  />
-                  <Tooltip
-                    formatter={(value: number) => formatCurrencyFull(value)}
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                  />
-                  <Bar dataKey="revenue" fill={BRAND.primary} radius={[0, 4, 4, 0]} name="Revenue" />
+                  All
+                </button>
+                {allCompareSegments.map((seg) => (
+                  <button
+                    key={seg}
+                    onClick={() => setSegmentFilter(seg === segmentFilter ? null : seg)}
+                    style={{ ...s.periodPill, ...(segmentFilter === seg ? s.periodPillActive : {}) }}
+                  >
+                    {seg}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div style={{ width: '100%', height: isMobile ? 200 : 280 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={compareBarData} margin={{ top: 5, right: 10, left: isMobile ? 0 : 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="group" tick={{ fontSize: 12, fill: '#334155', fontWeight: 600 }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickFormatter={currencyTickFormatter} width={isMobile ? 48 : 60} />
+                  <Tooltip formatter={(value: number) => formatCurrencyFull(value)} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                  <Bar dataKey="revenue" name="Revenue" radius={[6, 6, 0, 0]}>
+                    {compareBarData.map((entry, i) => (
+                      <Cell key={entry.group} fill={YEAR_COLORS[i % YEAR_COLORS.length]} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     );
   };

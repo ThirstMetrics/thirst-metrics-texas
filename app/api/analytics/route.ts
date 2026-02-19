@@ -40,6 +40,7 @@ interface RevenueTrendRow {
   liquor: number;
   wine: number;
   beer: number;
+  locationCount: number;
 }
 
 interface CategoryMix {
@@ -100,6 +101,7 @@ interface AnalyticsResponse {
   industrySegmentMix: IndustrySegmentRow[];
   ownershipGroups: OwnershipGroupRow[];
   monthlyGrowth: MonthlyGrowthRow[];
+  comparisonMode: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,21 +171,24 @@ export async function GET(request: Request) {
     const now = new Date();
 
     // Override monthsBack based on comparison mode
+    // Add extra months buffer to account for incomplete month trimming
     if (comparisonMode === 'yoy') {
-      monthsBack = 24;
+      monthsBack = 26;   // 24 + 2 buffer
     } else if (comparisonMode === 'mom') {
-      monthsBack = 2;
+      monthsBack = 4;    // need at least 2 complete months after trimming
     } else if (comparisonMode === '90over90') {
-      monthsBack = 15; // ~15 months to capture same quarter last year
+      monthsBack = 18;   // need 3 recent months + same 3 months last year + buffer
     } else if (comparisonMode === '3yr') {
-      monthsBack = 36;
+      monthsBack = 38;   // 36 + 2 buffer
     } else if (comparisonMode === '5yr') {
-      monthsBack = 60;
+      monthsBack = 62;   // 60 + 2 buffer
     }
 
     const startDate = new Date(now);
     startDate.setMonth(startDate.getMonth() - monthsBack);
     const startDateStr = startDate.toISOString().split('T')[0];
+
+    // Completeness detection is done post-query using locationCount (see below)
 
     // For active customers: last 3 months
     const activeDate = new Date(now);
@@ -247,14 +252,15 @@ export async function GET(request: Request) {
         WHERE obligation_end_date >= '${startDateStr}'
       `, null),
 
-      // 2. Revenue trend
+      // 2. Revenue trend (includes locationCount for completeness detection)
       safeQuery<RevenueTrendRow[]>('RevenueTrend', `
         SELECT
           strftime('%Y-%m', obligation_end_date) AS month,
           CAST(COALESCE(SUM(total_receipts), 0) AS DOUBLE)  AS total,
           CAST(COALESCE(SUM(liquor_receipts), 0) AS DOUBLE)  AS liquor,
           CAST(COALESCE(SUM(wine_receipts), 0) AS DOUBLE)    AS wine,
-          CAST(COALESCE(SUM(beer_receipts), 0) AS DOUBLE)    AS beer
+          CAST(COALESCE(SUM(beer_receipts), 0) AS DOUBLE)    AS beer,
+          CAST(COUNT(DISTINCT tabc_permit_number) AS DOUBLE)  AS "locationCount"
         FROM mixed_beverage_receipts
         WHERE obligation_end_date >= '${startDateStr}'
         GROUP BY strftime('%Y-%m', obligation_end_date)
@@ -430,14 +436,62 @@ export async function GET(request: Request) {
     ]);
 
     // -----------------------------------------------------------------------
+    // Filter out incomplete trailing months using location count heuristic.
+    //
+    // Logic: Look at months 2-5 from the end (the "benchmark" window).
+    // Average their locationCount. If the last month's locationCount is
+    // below 90% of that average, it's likely incomplete — drop it.
+    // Repeat check on the new last month (handles late-reporting edge cases).
+    // -----------------------------------------------------------------------
+
+    const COMPLETENESS_THRESHOLD = 0.90; // 90%
+
+    function trimIncompleteMonths<T extends { month: string; locationCount?: number }>(rows: T[]): T[] {
+      if (rows.length < 4) return rows; // not enough data to judge
+      const sorted = [...rows].sort((a, b) => a.month.localeCompare(b.month));
+
+      // Iteratively trim from the end
+      while (sorted.length >= 4) {
+        const last = sorted[sorted.length - 1];
+        const lastCount = (last as any).locationCount ?? 0;
+
+        // Benchmark: months at positions -5 to -2 (up to 4 months, skip the candidate)
+        const benchStart = Math.max(0, sorted.length - 5);
+        const benchEnd = sorted.length - 1;
+        const benchSlice = sorted.slice(benchStart, benchEnd);
+
+        if (benchSlice.length === 0) break;
+
+        const avgCount = benchSlice.reduce((sum, r) => sum + ((r as any).locationCount ?? 0), 0) / benchSlice.length;
+
+        if (avgCount > 0 && lastCount < avgCount * COMPLETENESS_THRESHOLD) {
+          console.log(`[Analytics API] Trimming incomplete month ${last.month}: ${lastCount} locations vs ${avgCount.toFixed(0)} avg (${((lastCount / avgCount) * 100).toFixed(1)}%)`);
+          sorted.pop();
+        } else {
+          break; // last month looks complete
+        }
+      }
+      return sorted;
+    }
+
+    const completeRevenueTrend = trimIncompleteMonths(revenueTrend);
+
+    // For monthly growth, we need to add locationCount from revenueTrend for the trim check
+    const growthWithCounts = monthlyGrowthRaw.map(g => {
+      const trendRow = revenueTrend.find(r => r.month === g.month);
+      return { ...g, locationCount: trendRow?.locationCount ?? 0 };
+    });
+    const completeMonthlyGrowthRaw = trimIncompleteMonths(growthWithCounts);
+
+    // -----------------------------------------------------------------------
     // Post-process monthly growth to compute MoM growth percent
     // -----------------------------------------------------------------------
 
-    const monthlyGrowth: MonthlyGrowthRow[] = monthlyGrowthRaw.map((row, idx) => {
-      if (idx === 0 || monthlyGrowthRaw[idx - 1].revenue === 0) {
+    const monthlyGrowth: MonthlyGrowthRow[] = completeMonthlyGrowthRaw.map((row, idx) => {
+      if (idx === 0 || completeMonthlyGrowthRaw[idx - 1].revenue === 0) {
         return { month: row.month, revenue: row.revenue, growthPercent: null };
       }
-      const prev = monthlyGrowthRaw[idx - 1].revenue;
+      const prev = completeMonthlyGrowthRaw[idx - 1].revenue;
       const growthPercent = ((row.revenue - prev) / prev) * 100;
       return {
         month: row.month,
@@ -452,7 +506,7 @@ export async function GET(request: Request) {
 
     const response: AnalyticsResponse = {
       kpis: kpisResult,
-      revenueTrend,
+      revenueTrend: completeRevenueTrend,
       categoryMix: categoryMixResult,
       topMovers,
       bottomMovers,
@@ -461,6 +515,7 @@ export async function GET(request: Request) {
       industrySegmentMix,
       ownershipGroups,
       monthlyGrowth,
+      comparisonMode: comparisonMode || null,
     };
 
     return NextResponse.json(response);
