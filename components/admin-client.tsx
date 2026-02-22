@@ -465,6 +465,9 @@ export default function AdminClient() {
         }
         // Invalidate cached data so it refreshes
         fetchedRef.current.ingestion = false;
+        fetchedRef.current.overview = false;
+        fetchStats();
+        fetchBackfillBoundary();
       }
     } catch {
       // Network error — server is likely down (being restarted during ingestion)
@@ -624,9 +627,11 @@ export default function AdminClient() {
             error: output.includes('Fatal') ? 'Check log for details' : undefined,
           });
         }
-        // Refresh boundaries
+        // Refresh all stale data after backfill
         fetchBackfillBoundary();
         fetchedRef.current.ingestion = false;
+        fetchedRef.current.overview = false;
+        fetchStats();
       }
     } catch {
       // Network error — server is likely down during backfill
