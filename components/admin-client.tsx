@@ -181,6 +181,8 @@ export default function AdminClient() {
   const [roleUpdateError, setRoleUpdateError] = useState<string | null>(null);
   const [ingestionMonths, setIngestionMonths] = useState(3);
   const [ingestionRunning, setIngestionRunning] = useState(false);
+  const [showIngestionConfirm, setShowIngestionConfirm] = useState(false);
+  const [showBackfillConfirm, setShowBackfillConfirm] = useState(false);
   const [ingestionResult, setIngestionResult] = useState<{
     success: boolean;
     message: string;
@@ -1344,7 +1346,7 @@ export default function AdminClient() {
           </div>
 
           <button
-            onClick={handleRunIngestion}
+            onClick={() => setShowIngestionConfirm(true)}
             disabled={ingestionRunning}
             style={{
               ...s.primaryButton,
@@ -1368,6 +1370,41 @@ export default function AdminClient() {
               </span>
             ) : 'Run Ingestion'}
           </button>
+
+          {/* Ingestion Confirmation Dialog */}
+          {showIngestionConfirm && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px 20px',
+              borderRadius: '10px',
+              border: '2px solid #f59e0b',
+              background: '#fffbeb',
+            }}>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#92400e', marginBottom: '10px' }}>
+                {'\u26A0\uFE0F'} Confirm Ingestion
+              </div>
+              <div style={{ fontSize: '14px', color: '#78350f', marginBottom: '6px' }}>
+                Estimated new records: <strong>{ingestionCheck ? formatNumber(ingestionCheck.estimatedNewRecords) : '~' + formatNumber(ingestionMonths * 23000)}</strong>
+              </div>
+              <div style={{ fontSize: '13px', color: '#92400e', marginBottom: '14px' }}>
+                Looking back <strong>{ingestionMonths}</strong> month{ingestionMonths !== 1 ? 's' : ''}. This will fetch data from the Texas.gov API and insert into the database.
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={() => { setShowIngestionConfirm(false); handleRunIngestion(); }}
+                  style={{ ...s.primaryButton, background: '#0d7377', padding: '8px 20px', fontSize: '13px' }}
+                >
+                  Yes, Run Ingestion
+                </button>
+                <button
+                  onClick={() => setShowIngestionConfirm(false)}
+                  style={{ padding: '8px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, color: '#64748b', background: 'white', border: '1px solid #d1d5db', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Immediate feedback before first poll */}
           {ingestionRunning && !ingestionStatus && (
@@ -1620,7 +1657,7 @@ export default function AdminClient() {
           </div>
 
           <button
-            onClick={handleRunBackfill}
+            onClick={() => setShowBackfillConfirm(true)}
             disabled={backfillRunning}
             style={{
               ...s.primaryButton,
@@ -1644,6 +1681,41 @@ export default function AdminClient() {
               </span>
             ) : 'Run Backfill'}
           </button>
+
+          {/* Backfill Confirmation Dialog */}
+          {showBackfillConfirm && (
+            <div style={{
+              marginTop: '16px',
+              padding: '16px 20px',
+              borderRadius: '10px',
+              border: '2px solid #f59e0b',
+              background: '#fffbeb',
+            }}>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#92400e', marginBottom: '10px' }}>
+                {'\u26A0\uFE0F'} Confirm Backfill
+              </div>
+              <div style={{ fontSize: '14px', color: '#78350f', marginBottom: '6px' }}>
+                Backfilling <strong>{backfillMonths}</strong> month{backfillMonths !== 1 ? 's' : ''} of historical data
+              </div>
+              <div style={{ fontSize: '13px', color: '#92400e', marginBottom: '14px' }}>
+                Estimated ~{formatNumber(backfillMonths * 23000)} records. This will compare existing records and insert/update as needed.
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={() => { setShowBackfillConfirm(false); handleRunBackfill(); }}
+                  style={{ ...s.primaryButton, background: '#7c3aed', padding: '8px 20px', fontSize: '13px' }}
+                >
+                  Yes, Run Backfill
+                </button>
+                <button
+                  onClick={() => setShowBackfillConfirm(false)}
+                  style={{ padding: '8px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, color: '#64748b', background: 'white', border: '1px solid #d1d5db', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Immediate feedback before first poll */}
           {backfillRunning && !backfillStatus && (

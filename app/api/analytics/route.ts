@@ -53,6 +53,7 @@ interface CategoryMix {
 interface MoverRow {
   permit: string;
   name: string;
+  segment: string;
   currentRevenue: number;
   previousRevenue: number;
   change: number;
@@ -300,6 +301,7 @@ export async function GET(request: Request) {
         SELECT
           c.tabc_permit_number                              AS permit,
           COALESCE(e.clean_dba_name, MAX(m.location_name))  AS name,
+          COALESCE(e.industry_segment, 'Unknown')           AS segment,
           c.revenue                                         AS "currentRevenue",
           COALESCE(p.revenue, 0)                            AS "previousRevenue",
           CAST(c.revenue - COALESCE(p.revenue, 0) AS DOUBLE) AS change,
@@ -314,9 +316,9 @@ export async function GET(request: Request) {
         LEFT JOIN location_enrichments e ON c.tabc_permit_number = e.tabc_permit_number
         LEFT JOIN mixed_beverage_receipts m ON c.tabc_permit_number = m.tabc_permit_number
         WHERE c.revenue - COALESCE(p.revenue, 0) > 0
-        GROUP BY c.tabc_permit_number, c.revenue, p.revenue, e.clean_dba_name
+        GROUP BY c.tabc_permit_number, c.revenue, p.revenue, e.clean_dba_name, e.industry_segment
         ORDER BY change DESC
-        LIMIT 10
+        LIMIT 50
       `, []),
 
       // 5. Bottom movers (biggest revenue decreases) — filtered by category
@@ -341,6 +343,7 @@ export async function GET(request: Request) {
         SELECT
           p.tabc_permit_number                              AS permit,
           COALESCE(e.clean_dba_name, MAX(m.location_name))  AS name,
+          COALESCE(e.industry_segment, 'Unknown')           AS segment,
           COALESCE(c.revenue, 0)                            AS "currentRevenue",
           p.revenue                                         AS "previousRevenue",
           CAST(COALESCE(c.revenue, 0) - p.revenue AS DOUBLE) AS change,
@@ -355,9 +358,9 @@ export async function GET(request: Request) {
         LEFT JOIN location_enrichments e ON p.tabc_permit_number = e.tabc_permit_number
         LEFT JOIN mixed_beverage_receipts m ON p.tabc_permit_number = m.tabc_permit_number
         WHERE COALESCE(c.revenue, 0) - p.revenue < 0
-        GROUP BY p.tabc_permit_number, c.revenue, p.revenue, e.clean_dba_name
+        GROUP BY p.tabc_permit_number, c.revenue, p.revenue, e.clean_dba_name, e.industry_segment
         ORDER BY change ASC
-        LIMIT 10
+        LIMIT 50
       `, []),
 
       // 6. Metroplex breakdown (top 10) — filtered by category

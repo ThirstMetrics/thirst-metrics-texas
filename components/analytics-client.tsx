@@ -57,6 +57,7 @@ interface CategoryMix {
 interface MoverItem {
   permit: string;
   name: string;
+  segment: string;
   currentRevenue: number;
   previousRevenue: number;
   change: number;
@@ -484,6 +485,7 @@ export default function AnalyticsClient() {
   // Overview state
   const [period, setPeriod] = useState<PeriodKey>('12');
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey>('total');
+  const [moverSegmentFilter, setMoverSegmentFilter] = useState<string | null>(null);
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode | null>(null);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
@@ -581,6 +583,42 @@ export default function AnalyticsClient() {
   useEffect(() => {
     fetchAnalytics(period, categoryFilter, comparisonMode);
   }, [period, categoryFilter, comparisonMode, fetchAnalytics]);
+
+  // ----------------------------------------
+  // Scroll position: save & restore
+  // ----------------------------------------
+
+  const scrollRestoredRef = useRef(false);
+
+  // Save scroll position on scroll (throttled via passive listener)
+  useEffect(() => {
+    let ticking = false;
+    const handleScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        sessionStorage.setItem('analytics_scroll_y', String(window.scrollY));
+        ticking = false;
+      });
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Restore scroll position once after data loads
+  useEffect(() => {
+    if (!analyticsLoading && analyticsData && !scrollRestoredRef.current) {
+      scrollRestoredRef.current = true;
+      const saved = sessionStorage.getItem('analytics_scroll_y');
+      if (saved) {
+        const y = parseInt(saved, 10);
+        if (y > 0) {
+          // Small delay so DOM has rendered
+          setTimeout(() => window.scrollTo(0, y), 100);
+        }
+      }
+    }
+  }, [analyticsLoading, analyticsData]);
 
   // ----------------------------------------
   // OCR Search: debounced fetch
@@ -1279,86 +1317,128 @@ export default function AnalyticsClient() {
           </div>
         </div>
 
-        {/* Top Movers + Bottom Movers Tables */}
-        <div style={isMobile ? s.singleCol : s.twoCol}>
-          {/* Top Movers */}
-          <div style={s.chartSection}>
-            <h3 style={s.chartTitle}>
-              <span style={{ color: '#22c55e' }}>{'\u25B2'}</span> Top Movers
-            </h3>
-            {topMovers.length === 0 ? (
-              <div style={s.emptyMini}>No data available</div>
-            ) : (
-              <div style={s.tableWrap}>
-                <table style={s.table}>
-                  <thead>
-                    <tr>
-                      <th style={s.th}>Name</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Change</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topMovers.slice(0, 10).map((m) => (
-                      <tr key={m.permit} style={s.tr}>
-                        <td style={s.td}>
-                          <Link href={`/customers/${m.permit}`} style={s.tableLink}>
-                            {m.name || m.permit}
-                          </Link>
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right' }}>
-                          {formatCurrencyCompact(m.currentRevenue)}
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right', color: '#22c55e', fontWeight: 600 }}>
-                          {'\u25B2'} {formatPercent(m.changePercent)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+        {/* Market Segment Filter for Movers */}
+        {(() => {
+          const allMoverSegments = Array.from(new Set([
+            ...topMovers.map(m => m.segment),
+            ...bottomMovers.map(m => m.segment),
+          ])).filter(s => s && s !== 'Unknown').sort();
 
-          {/* Bottom Movers */}
-          <div style={s.chartSection}>
-            <h3 style={s.chartTitle}>
-              <span style={{ color: '#ef4444' }}>{'\u25BC'}</span> Bottom Movers
-            </h3>
-            {bottomMovers.length === 0 ? (
-              <div style={s.emptyMini}>No data available</div>
-            ) : (
-              <div style={s.tableWrap}>
-                <table style={s.table}>
-                  <thead>
-                    <tr>
-                      <th style={s.th}>Name</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>
-                      <th style={{ ...s.th, textAlign: 'right' }}>Change</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bottomMovers.slice(0, 10).map((m) => (
-                      <tr key={m.permit} style={s.tr}>
-                        <td style={s.td}>
-                          <Link href={`/customers/${m.permit}`} style={s.tableLink}>
-                            {m.name || m.permit}
-                          </Link>
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right' }}>
-                          {formatCurrencyCompact(m.currentRevenue)}
-                        </td>
-                        <td style={{ ...s.td, textAlign: 'right', color: '#ef4444', fontWeight: 600 }}>
-                          {'\u25BC'} {formatPercent(m.changePercent)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          const filteredTop = moverSegmentFilter
+            ? topMovers.filter(m => m.segment === moverSegmentFilter)
+            : topMovers;
+          const filteredBottom = moverSegmentFilter
+            ? bottomMovers.filter(m => m.segment === moverSegmentFilter)
+            : bottomMovers;
+
+          return (
+            <>
+              {allMoverSegments.length > 1 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 500, marginRight: '4px' }}>Segment:</span>
+                  <button
+                    onClick={() => setMoverSegmentFilter(null)}
+                    style={{ ...s.periodPill, ...(moverSegmentFilter === null ? s.periodPillActive : {}) }}
+                  >
+                    All
+                  </button>
+                  {allMoverSegments.map((seg) => (
+                    <button
+                      key={seg}
+                      onClick={() => setMoverSegmentFilter(seg === moverSegmentFilter ? null : seg)}
+                      style={{ ...s.periodPill, ...(moverSegmentFilter === seg ? s.periodPillActive : {}) }}
+                    >
+                      {seg}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Top Movers + Bottom Movers Tables */}
+              <div style={isMobile ? s.singleCol : s.twoCol}>
+                {/* Top Movers */}
+                <div style={s.chartSection}>
+                  <h3 style={s.chartTitle}>
+                    <span style={{ color: '#22c55e' }}>{'\u25B2'}</span> Top Movers
+                    {moverSegmentFilter && <span style={{ fontSize: '13px', fontWeight: 400, color: '#64748b' }}> — {moverSegmentFilter}</span>}
+                  </h3>
+                  {filteredTop.length === 0 ? (
+                    <div style={s.emptyMini}>No data available</div>
+                  ) : (
+                    <div style={s.tableWrap}>
+                      <table style={s.table}>
+                        <thead>
+                          <tr>
+                            <th style={s.th}>Name</th>
+                            <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>
+                            <th style={{ ...s.th, textAlign: 'right' }}>Change</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredTop.slice(0, 10).map((m) => (
+                            <tr key={m.permit} style={s.tr}>
+                              <td style={s.td}>
+                                <Link href={`/customers/${m.permit}`} style={s.tableLink}>
+                                  {m.name || m.permit}
+                                </Link>
+                              </td>
+                              <td style={{ ...s.td, textAlign: 'right' }}>
+                                {formatCurrencyCompact(m.currentRevenue)}
+                              </td>
+                              <td style={{ ...s.td, textAlign: 'right', color: '#22c55e', fontWeight: 600 }}>
+                                {'\u25B2'} {formatPercent(m.changePercent)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Movers */}
+                <div style={s.chartSection}>
+                  <h3 style={s.chartTitle}>
+                    <span style={{ color: '#ef4444' }}>{'\u25BC'}</span> Bottom Movers
+                    {moverSegmentFilter && <span style={{ fontSize: '13px', fontWeight: 400, color: '#64748b' }}> — {moverSegmentFilter}</span>}
+                  </h3>
+                  {filteredBottom.length === 0 ? (
+                    <div style={s.emptyMini}>No data available</div>
+                  ) : (
+                    <div style={s.tableWrap}>
+                      <table style={s.table}>
+                        <thead>
+                          <tr>
+                            <th style={s.th}>Name</th>
+                            <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>
+                            <th style={{ ...s.th, textAlign: 'right' }}>Change</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredBottom.slice(0, 10).map((m) => (
+                            <tr key={m.permit} style={s.tr}>
+                              <td style={s.td}>
+                                <Link href={`/customers/${m.permit}`} style={s.tableLink}>
+                                  {m.name || m.permit}
+                                </Link>
+                              </td>
+                              <td style={{ ...s.td, textAlign: 'right' }}>
+                                {formatCurrencyCompact(m.currentRevenue)}
+                              </td>
+                              <td style={{ ...s.td, textAlign: 'right', color: '#ef4444', fontWeight: 600 }}>
+                                {'\u25BC'} {formatPercent(m.changePercent)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-        </div>
+            </>
+          );
+        })()}
       </div>
     );
   };
