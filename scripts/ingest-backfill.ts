@@ -933,6 +933,17 @@ async function ingestBackfill() {
       fs.unlinkSync(backupPath);
     }
     console.log(chalk.green('   Swap complete — production DB updated.'));
+
+    // Restart Next.js server so DuckDB singleton reopens the new file
+    console.log(chalk.cyan('   Restarting Next.js server to pick up new DB...'));
+    try {
+      const { execSync } = await import('child_process');
+      execSync('pm2 reload all', { timeout: 15000, stdio: 'pipe' });
+      console.log(chalk.green('   Next.js server restarted.'));
+    } catch (restartErr) {
+      console.error(chalk.yellow(`   Warning: PM2 reload failed: ${restartErr}`));
+      console.error(chalk.yellow('   You may need to manually run: pm2 restart all'));
+    }
   } catch (swapErr) {
     console.error(chalk.red(`   Swap failed: ${swapErr}`));
     console.error(chalk.red(`   Staging file preserved at: ${DUCKDB_STAGING_PATH}`));
