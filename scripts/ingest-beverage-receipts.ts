@@ -896,14 +896,21 @@ async function ingestBeverageReceipts() {
     console.log(chalk.green('   Swap complete — production DB updated.'));
 
     // Restart Next.js server so DuckDB singleton reopens the new file
+    // The app runs via nohup on port 3000, not through PM2
     console.log(chalk.cyan('   Restarting Next.js server to pick up new DB...'));
     try {
       const { execSync } = await import('child_process');
-      execSync('pm2 reload all', { timeout: 15000, stdio: 'pipe' });
+      execSync('fuser -k 3000/tcp 2>/dev/null; sleep 2', { timeout: 10000, stdio: 'pipe' });
+      execSync(
+        'cd ' + process.cwd() + ' && source ~/.nvm/nvm.sh && nohup npx next start -p 3000 > /tmp/next.log 2>&1 &',
+        { timeout: 10000, stdio: 'pipe', shell: '/bin/bash' }
+      );
+      // Wait for server to be ready
+      execSync('sleep 5', { timeout: 10000, stdio: 'pipe' });
       console.log(chalk.green('   Next.js server restarted.'));
     } catch (restartErr) {
-      console.error(chalk.yellow(`   Warning: PM2 reload failed: ${restartErr}`));
-      console.error(chalk.yellow('   You may need to manually run: pm2 restart all'));
+      console.error(chalk.yellow(`   Warning: Next.js restart failed: ${restartErr}`));
+      console.error(chalk.yellow('   You may need to manually restart the server.'));
     }
   } catch (swapErr) {
     console.error(chalk.red(`   Swap failed: ${swapErr}`));
