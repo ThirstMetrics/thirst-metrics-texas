@@ -460,13 +460,14 @@ async function processRecord(
   const responsibilityEndDate = responsibilityEndStr ? parseDate(responsibilityEndStr) : null;
 
   // Check if record exists and fetch key fields for comparison
+  // NOTE: old duckdb package expects spread params, not an array
   const existing = await new Promise<any[]>((resolve, reject) => {
     conn.all(
       `SELECT location_month_key, location_name, location_address,
               liquor_receipts, wine_receipts, beer_receipts,
               cover_charge_receipts, total_receipts
        FROM mixed_beverage_receipts WHERE location_month_key = ?`,
-      [monthKey],
+      monthKey,
       (err: any, result: any[]) => {
         if (err) {
           reject(err);

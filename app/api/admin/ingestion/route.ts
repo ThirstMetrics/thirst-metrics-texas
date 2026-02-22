@@ -173,6 +173,7 @@ export async function POST() {
     // Get the latest obligation_end_date from DuckDB
     let latestInDb: string | null = null;
     let existingMonths = new Set<string>();
+    let dbMonthCounts = new Map<string, number>(); // YYYY-MM -> record count
 
     try {
       const latestResult = await query<{ latest_date: string }>(
@@ -181,13 +182,18 @@ export async function POST() {
       );
       latestInDb = latestResult[0]?.latest_date || null;
 
-      // Get all distinct months currently in the DB to compare
-      const monthsResult = await query<{ month: string }>(
-        `SELECT DISTINCT CAST(DATE_TRUNC('month', obligation_end_date) AS VARCHAR) AS month
+      // Get distinct months AND their record counts from the DB
+      const monthsResult = await query<{ month: string; cnt: string }>(
+        `SELECT SUBSTR(CAST(DATE_TRUNC('month', obligation_end_date) AS VARCHAR), 1, 7) AS month,
+                COUNT(*)::VARCHAR AS cnt
          FROM mixed_beverage_receipts
+         GROUP BY month
          ORDER BY month DESC`
       );
-      existingMonths = new Set(monthsResult.map((r) => r.month));
+      for (const r of monthsResult) {
+        existingMonths.add(r.month);
+        dbMonthCounts.set(r.month, parseInt(r.cnt, 10) || 0);
+      }
     } catch (dbError: any) {
       console.error('[Admin Ingestion API] DuckDB query error:', dbError?.message ?? dbError);
     }
@@ -228,20 +234,49 @@ export async function POST() {
           }
         }
 
-        // Normalize existing DB months to YYYY-MM for comparison
-        const existingYearMonths = new Set<string>();
-        for (const m of existingMonths) {
-          existingYearMonths.add(m.substring(0, 7));
-        }
-
         newMonthsAvailable = Array.from(apiMonths)
-          .filter((m) => !existingYearMonths.has(m))
+          .filter((m) => !existingMonths.has(m))
           .sort()
           .reverse();
 
         // Estimate new records (~23k per month typical for Texas)
         if (newMonthsAvailable.length > 0) {
           estimatedNewRecords = newMonthsAvailable.length * 23000;
+        }
+
+        // Also check for incomplete months: months that exist in the DB
+        // but have fewer records than the API reports (Texas publishes incrementally)
+        const existingApiMonths = Array.from(apiMonths).filter((m) => existingMonths.has(m));
+        for (const month of existingApiMonths) {
+          const dbCount = dbMonthCounts.get(month) || 0;
+          try {
+            const monthStart = `${month}-01T00:00:00.000`;
+            // Build end date for the month
+            const [y, mo] = month.split('-').map(Number);
+            const nextMonth = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
+            const monthEnd = `${nextMonth}-01T00:00:00.000`;
+
+            const countUrl = new URL(TEXAS_API_URL);
+            countUrl.searchParams.set('$select', 'count(*) as cnt');
+            countUrl.searchParams.set(
+              '$where',
+              `obligation_end_date_yyyymmdd >= '${monthStart}' AND obligation_end_date_yyyymmdd < '${monthEnd}'`
+            );
+            const countResp = await fetch(countUrl.toString());
+            if (countResp.ok) {
+              const countData: any[] = await countResp.json();
+              const apiCount = parseInt(countData[0]?.cnt, 10) || 0;
+              if (apiCount > dbCount) {
+                const diff = apiCount - dbCount;
+                estimatedNewRecords += diff;
+                if (!newMonthsAvailable.includes(`${month} (+${diff.toLocaleString()})`)) {
+                  newMonthsAvailable.push(`${month} (+${diff.toLocaleString()})`);
+                }
+              }
+            }
+          } catch {
+            // If count check fails for a month, skip it
+          }
         }
 
         // Step 2: Fetch the highest-revenue sample records
@@ -332,12 +367,12 @@ export async function POST() {
 
     // Build human-readable message
     let message: string;
-    if (newMonthsAvailable.length === 0) {
-      message = 'Database is up to date. No new months of data found in the Texas API.';
-    } else if (newMonthsAvailable.length === 1) {
-      message = `1 new month of data available (${newMonthsAvailable[0]}), estimated ~${estimatedNewRecords.toLocaleString()} new records.`;
+    if (newMonthsAvailable.length === 0 && estimatedNewRecords === 0) {
+      message = 'Database is up to date. No new data found in the Texas API.';
+    } else if (estimatedNewRecords > 0) {
+      message = `New data available (${newMonthsAvailable.join(', ')}), estimated ~${estimatedNewRecords.toLocaleString()} new records.`;
     } else {
-      message = `${newMonthsAvailable.length} new months of data available (${newMonthsAvailable.join(', ')}), estimated ~${estimatedNewRecords.toLocaleString()} new records.`;
+      message = `${newMonthsAvailable.length} new month(s) of data available (${newMonthsAvailable.join(', ')}), estimated ~${estimatedNewRecords.toLocaleString()} new records.`;
     }
 
     return NextResponse.json({
