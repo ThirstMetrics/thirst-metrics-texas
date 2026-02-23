@@ -842,35 +842,39 @@ export default function AdminClient() {
     const last6Months = dataFreshness.recordsByMonth.slice(-6);
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px' }}>
         {/* KPI Cards */}
-        <div style={s.kpiGrid}>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F4CA}'}</div>
+        <div style={{
+          ...s.kpiGrid,
+          gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: isMobile ? '8px' : '16px',
+        }}>
+          <div style={{ ...s.kpiCard, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '14px' }}>
+            <div style={{ ...s.kpiIcon, fontSize: isMobile ? '22px' : '28px' }}>{'\u{1F4CA}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatNumber(system.totalRecords)}</div>
-              <div style={s.kpiLabel}>Total Records</div>
+              <div style={{ ...s.kpiValue, fontSize: isMobile ? '18px' : '24px' }}>{formatNumber(system.totalRecords)}</div>
+              <div style={{ ...s.kpiLabel, fontSize: isMobile ? '11px' : '13px' }}>Records</div>
             </div>
           </div>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F3EA}'}</div>
+          <div style={{ ...s.kpiCard, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '14px' }}>
+            <div style={{ ...s.kpiIcon, fontSize: isMobile ? '22px' : '28px' }}>{'\u{1F3EA}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatNumber(system.totalCustomers)}</div>
-              <div style={s.kpiLabel}>Total Customers</div>
+              <div style={{ ...s.kpiValue, fontSize: isMobile ? '18px' : '24px' }}>{formatNumber(system.totalCustomers)}</div>
+              <div style={{ ...s.kpiLabel, fontSize: isMobile ? '11px' : '13px' }}>Customers</div>
             </div>
           </div>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F4B0}'}</div>
+          <div style={{ ...s.kpiCard, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '14px' }}>
+            <div style={{ ...s.kpiIcon, fontSize: isMobile ? '22px' : '28px' }}>{'\u{1F4B0}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatCurrency(system.totalRevenue)}</div>
-              <div style={s.kpiLabel}>Total Revenue</div>
+              <div style={{ ...s.kpiValue, fontSize: isMobile ? '18px' : '24px' }}>{formatCurrency(system.totalRevenue)}</div>
+              <div style={{ ...s.kpiLabel, fontSize: isMobile ? '11px' : '13px' }}>Revenue</div>
             </div>
           </div>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F465}'}</div>
+          <div style={{ ...s.kpiCard, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '14px' }}>
+            <div style={{ ...s.kpiIcon, fontSize: isMobile ? '22px' : '28px' }}>{'\u{1F465}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatNumber(userStats.totalUsers)}</div>
-              <div style={s.kpiLabel}>Total Users</div>
+              <div style={{ ...s.kpiValue, fontSize: isMobile ? '18px' : '24px' }}>{formatNumber(userStats.totalUsers)}</div>
+              <div style={{ ...s.kpiLabel, fontSize: isMobile ? '11px' : '13px' }}>Users</div>
             </div>
           </div>
         </div>
@@ -878,7 +882,7 @@ export default function AdminClient() {
         {/* Two Column: Data Coverage + Activity Summary */}
         <div style={s.twoColResponsive}>
           {/* Data Coverage Card */}
-          <div style={s.card}>
+          <div style={{ ...s.card, padding: isMobile ? '12px' : '20px' }}>
             <h3 style={s.cardTitle}>Data Coverage</h3>
             <div style={s.statsList}>
               <div style={s.statsRow}>
@@ -928,7 +932,7 @@ export default function AdminClient() {
           </div>
 
           {/* Activity Summary Card */}
-          <div style={s.card}>
+          <div style={{ ...s.card, padding: isMobile ? '12px' : '20px' }}>
             <h3 style={s.cardTitle}>Activity Summary</h3>
             <div style={s.statsList}>
               <div style={s.statsRow}>

@@ -53,6 +53,24 @@ const TIER_COLOR_HEX: Record<TierColor, string> = {
   red: '#ef4444',
 };
 
+// Tier visibility by zoom level (progressive disclosure)
+// At wide zoom: only top-tier (green). As user zooms in, reveal more tiers.
+const TIER_PRIORITY: Record<TierColor, number> = {
+  green: 1,      // always visible
+  lightgreen: 2, // zoom >= 7
+  yellow: 3,     // zoom >= 9
+  orange: 4,     // zoom >= 11
+  red: 5,        // zoom >= 13 (street level)
+};
+
+function getMaxTierForZoom(zoom: number): number {
+  if (zoom >= 13) return 5;
+  if (zoom >= 11) return 4;
+  if (zoom >= 9) return 3;
+  if (zoom >= 7) return 2;
+  return 1;
+}
+
 // Texas center coordinates
 const TEXAS_CENTER = {
   lat: 31.0,
@@ -128,6 +146,9 @@ export default function CustomerMap({
       });
 
       el.dataset.customerId = customer.id;
+      el.dataset.tierPriority = String(
+        customer.tier_color ? TIER_PRIORITY[customer.tier_color] : 1
+      );
 
       return el;
     },
@@ -190,6 +211,17 @@ export default function CustomerMap({
 
       map.current.on('load', () => {
         setIsLoading(false);
+      });
+
+      // Progressive pin visibility: show/hide markers based on zoom level
+      map.current.on('zoomend', () => {
+        const zoom = map.current?.getZoom() || 5;
+        const maxTier = getMaxTierForZoom(zoom);
+        markersRef.current.forEach((marker) => {
+          const el = marker.getElement();
+          const tierPriority = parseInt(el.dataset.tierPriority || '1', 10);
+          el.style.display = tierPriority <= maxTier ? '' : 'none';
+        });
       });
 
       map.current.on('error', (e) => {
@@ -278,6 +310,15 @@ export default function CustomerMap({
       }
 
       markersRef.current.set(customer.id, marker);
+    });
+
+    // Apply initial zoom-based visibility
+    const currentZoom = map.current.getZoom();
+    const maxTier = getMaxTierForZoom(currentZoom);
+    markersRef.current.forEach((marker) => {
+      const el = marker.getElement();
+      const tierPriority = parseInt(el.dataset.tierPriority || '1', 10);
+      el.style.display = tierPriority <= maxTier ? '' : 'none';
     });
 
     // Fit bounds only once per customer set, not on every re-render

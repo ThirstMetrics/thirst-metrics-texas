@@ -24,6 +24,7 @@ interface SalesActivity {
   id: string;
   user_id: string;
   tabc_permit_number: string;
+  customer_name: string | null;
   activity_type: 'visit' | 'call' | 'email' | 'note';
   activity_date: string;
   notes: string | null;
@@ -497,7 +498,7 @@ export default function ActivitiesClient() {
             href={`/customers/${activity.tabc_permit_number}`}
             style={styles.permitLink}
           >
-            Permit: {activity.tabc_permit_number}
+            {activity.customer_name || activity.tabc_permit_number}
           </Link>
           {activity.contact_name && (
             <div style={styles.contactName}>
@@ -626,9 +627,9 @@ export default function ActivitiesClient() {
     }
 
     return (
-      <div style={styles.calendarContainer}>
+      <div style={{ ...styles.calendarContainer, gap: isMobile ? '6px' : '16px' }}>
         {/* Month navigation */}
-        <div style={styles.calendarNav}>
+        <div style={{ ...styles.calendarNav, padding: isMobile ? '8px 12px' : '12px 16px' }}>
           <button onClick={goToPrevMonth} style={styles.calendarNavButton}>
             {'\u2190'}
           </button>
@@ -645,8 +646,8 @@ export default function ActivitiesClient() {
           </button>
         </div>
 
-        {/* Legend */}
-        <div style={styles.calendarLegend}>
+        {/* Legend - hide on mobile to save space */}
+        <div style={{ ...styles.calendarLegend, display: isMobile ? 'none' : 'flex' }}>
           {(['visit', 'call', 'email', 'note'] as const).map((type) => (
             <div key={type} style={styles.legendItem}>
               <span
@@ -663,7 +664,7 @@ export default function ActivitiesClient() {
         </div>
 
         {/* Weekday headers */}
-        <div style={styles.calendarGrid}>
+        <div style={{ ...styles.calendarGrid, padding: isMobile ? '6px' : '12px', gap: isMobile ? '2px' : '4px' }}>
           {weekDays.map((day, i) => (
             <div key={`hdr-${i}`} style={styles.calendarWeekdayHeader}>
               {day}
@@ -897,7 +898,7 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '16px',
+    gap: '12px',
   },
 
   // Loading skeleton
@@ -1104,7 +1105,7 @@ const styles: Record<string, React.CSSProperties> = {
   cardList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px',
+    gap: '8px',
   },
 
   // Card
@@ -1119,7 +1120,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '14px 16px',
+    padding: '10px 12px',
     cursor: 'pointer',
     userSelect: 'none',
   },
@@ -1181,7 +1182,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   // Card body (always visible)
   cardBody: {
-    padding: '0 16px 14px 52px',
+    padding: '0 12px 10px 46px',
   },
   permitLink: {
     fontSize: '13px',
@@ -1300,7 +1301,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflowX: 'auto',
   },
   tabButton: {
-    padding: '12px 20px',
+    padding: '10px 16px',
     background: 'none',
     border: 'none',
     borderBottom: '2px solid transparent',
