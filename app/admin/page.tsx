@@ -7,6 +7,7 @@
 import { redirect } from 'next/navigation';
 import { createServerClient } from '@/lib/supabase/server';
 import dynamic from 'next/dynamic';
+import PageContentWrapper from '@/components/page-content-wrapper';
 
 // Dynamic import to avoid SSR issues with Recharts
 const AdminClient = dynamic(() => import('@/components/admin-client'), {
@@ -46,9 +47,9 @@ export default async function AdminPage() {
       </div>
 
       {/* Content */}
-      <div style={styles.content}>
+      <PageContentWrapper>
         <AdminClient />
-      </div>
+      </PageContentWrapper>
     </div>
   );
 }
@@ -60,7 +61,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   pageHeader: {
     background: 'linear-gradient(135deg, #0d7377 0%, #0a5f63 100%)',
-    padding: '24px',
+    padding: '16px 16px',
   },
   pageHeaderContent: {
     maxWidth: '1400px',
@@ -76,10 +77,5 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     color: 'rgba(255,255,255,0.8)',
     marginTop: '4px',
-  },
-  content: {
-    padding: '24px',
-    maxWidth: '1400px',
-    margin: '0 auto',
   },
 };

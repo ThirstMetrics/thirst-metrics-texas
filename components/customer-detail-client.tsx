@@ -265,16 +265,16 @@ export default function CustomerDetailClient(props: CustomerDetailClientProps) {
             </div>
             <div style={{ fontSize: '14px', lineHeight: 1.5 }}>
               {customer.location_address && (
-                <div style={{ whiteSpace: 'nowrap' }}>{customer.location_address}</div>
+                <div style={{ whiteSpace: isMobile ? 'normal' : 'nowrap' }}>{customer.location_address}</div>
               )}
               {(customer.location_city || customer.location_state || customer.location_zip) && (
-                <div style={{ whiteSpace: 'nowrap' }}>
+                <div style={{ whiteSpace: isMobile ? 'normal' : 'nowrap' }}>
                   {[customer.location_city, customer.location_state].filter(Boolean).join(', ')}
                   {customer.location_zip ? ` ${customer.location_zip}` : ''}
                 </div>
               )}
               {countyLabel && (
-                <div style={{ whiteSpace: 'nowrap' }}>County: {countyLabel}</div>
+                <div style={{ whiteSpace: isMobile ? 'normal' : 'nowrap' }}>County: {countyLabel}</div>
               )}
             </div>
 

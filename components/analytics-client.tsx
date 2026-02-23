@@ -487,6 +487,7 @@ export default function AnalyticsClient() {
   const [categoryFilter, setCategoryFilter] = useState<CategoryKey>('total');
   const [moverSegmentFilter, setMoverSegmentFilter] = useState<string | null>(null);
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode | null>(null);
+  const [metroplexFilter, setMetroplexFilter] = useState<string | null>(null);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -831,20 +832,44 @@ export default function AnalyticsClient() {
   // ============================================
 
   const renderTabs = () => (
-    <div style={s.tabBar}>
-      {TABS.map((tab) => (
-        <button
-          key={tab.key}
-          onClick={() => setActiveTab(tab.key)}
+    isMobile ? (
+      <div style={{ marginBottom: '16px' }}>
+        <select
+          value={activeTab}
+          onChange={(e) => setActiveTab(e.target.value as TabKey)}
           style={{
-            ...s.tabButton,
-            ...(activeTab === tab.key ? s.tabButtonActive : {}),
+            width: '100%',
+            padding: '12px',
+            borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            fontSize: '15px',
+            fontWeight: 600,
+            color: '#0d7377',
+            backgroundColor: 'white',
+            cursor: 'pointer',
           }}
         >
-          {tab.label}
-        </button>
-      ))}
-    </div>
+          {TABS.map((tab) => (
+            <option key={tab.key} value={tab.key}>{tab.label}</option>
+          ))}
+        </select>
+      </div>
+    ) : (
+      <div style={s.tabBar}>
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              ...s.tabButton,
+              ...(activeTab === tab.key ? s.tabButtonActive : {}),
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    )
   );
 
   // ============================================
@@ -915,7 +940,32 @@ export default function AnalyticsClient() {
     };
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px' }}>
+        {/* Metroplex Filter (mobile only) */}
+        {isMobile && analyticsData.metroplexBreakdown.length > 0 && (
+          <select
+            value={metroplexFilter || ''}
+            onChange={(e) => setMetroplexFilter(e.target.value || null)}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              fontSize: '14px',
+              backgroundColor: 'white',
+              color: metroplexFilter ? '#0d7377' : '#475569',
+              fontWeight: metroplexFilter ? 600 : 400,
+            }}
+          >
+            <option value="">All Metroplexes</option>
+            {[...analyticsData.metroplexBreakdown]
+              .sort((a, b) => b.revenue - a.revenue)
+              .map((m) => (
+                <option key={m.metroplex} value={m.metroplex}>{m.metroplex}</option>
+              ))}
+          </select>
+        )}
+
         {/* Period Selector */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={s.periodRow}>
@@ -951,33 +1001,48 @@ export default function AnalyticsClient() {
         </div>
 
         {/* KPI Cards */}
-        <div style={s.kpiGrid}>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F4B0}'}</div>
+        <div style={{
+          ...s.kpiGrid,
+          ...(isMobile ? { gridTemplateColumns: '1fr 1fr', gap: '10px' } : {}),
+        }}>
+          <div style={{
+            ...s.kpiCard,
+            ...(isMobile ? { padding: '14px', gap: '10px' } : {}),
+          }}>
+            <div style={{ ...s.kpiIcon, ...(isMobile ? { fontSize: '22px' } : {}) }}>{'\u{1F4B0}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatCurrencyCompact(kpis.totalRevenue)}</div>
-              <div style={s.kpiLabel}>Total Revenue</div>
+              <div style={{ ...s.kpiValue, ...(isMobile ? { fontSize: '18px' } : {}) }}>{formatCurrencyCompact(kpis.totalRevenue)}</div>
+              <div style={{ ...s.kpiLabel, ...(isMobile ? { fontSize: '11px' } : {}) }}>Total Revenue</div>
             </div>
           </div>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F3EA}'}</div>
+          <div style={{
+            ...s.kpiCard,
+            ...(isMobile ? { padding: '14px', gap: '10px' } : {}),
+          }}>
+            <div style={{ ...s.kpiIcon, ...(isMobile ? { fontSize: '22px' } : {}) }}>{'\u{1F3EA}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatNumber(kpis.totalCustomers)}</div>
-              <div style={s.kpiLabel}>Customers</div>
+              <div style={{ ...s.kpiValue, ...(isMobile ? { fontSize: '18px' } : {}) }}>{formatNumber(kpis.totalCustomers)}</div>
+              <div style={{ ...s.kpiLabel, ...(isMobile ? { fontSize: '11px' } : {}) }}>Customers</div>
             </div>
           </div>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F4CA}'}</div>
+          <div style={{
+            ...s.kpiCard,
+            ...(isMobile ? { padding: '14px', gap: '10px' } : {}),
+          }}>
+            <div style={{ ...s.kpiIcon, ...(isMobile ? { fontSize: '22px' } : {}) }}>{'\u{1F4CA}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatCurrencyCompact(kpis.avgRevenuePerCustomer)}</div>
-              <div style={s.kpiLabel}>Avg Rev / Customer</div>
+              <div style={{ ...s.kpiValue, ...(isMobile ? { fontSize: '18px' } : {}) }}>{formatCurrencyCompact(kpis.avgRevenuePerCustomer)}</div>
+              <div style={{ ...s.kpiLabel, ...(isMobile ? { fontSize: '11px' } : {}) }}>Avg / Customer</div>
             </div>
           </div>
-          <div style={s.kpiCard}>
-            <div style={s.kpiIcon}>{'\u{1F7E2}'}</div>
+          <div style={{
+            ...s.kpiCard,
+            ...(isMobile ? { padding: '14px', gap: '10px' } : {}),
+          }}>
+            <div style={{ ...s.kpiIcon, ...(isMobile ? { fontSize: '22px' } : {}) }}>{'\u{1F7E2}'}</div>
             <div style={s.kpiContent}>
-              <div style={s.kpiValue}>{formatNumber(kpis.activeCustomers)}</div>
-              <div style={s.kpiLabel}>Active</div>
+              <div style={{ ...s.kpiValue, ...(isMobile ? { fontSize: '18px' } : {}) }}>{formatNumber(kpis.activeCustomers)}</div>
+              <div style={{ ...s.kpiLabel, ...(isMobile ? { fontSize: '11px' } : {}) }}>Active</div>
             </div>
           </div>
         </div>
@@ -1370,7 +1435,7 @@ export default function AnalyticsClient() {
                         <thead>
                           <tr>
                             <th style={s.th}>Name</th>
-                            <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>
+                            {!isMobile && <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>}
                             <th style={{ ...s.th, textAlign: 'right' }}>Change</th>
                           </tr>
                         </thead>
@@ -1382,9 +1447,11 @@ export default function AnalyticsClient() {
                                   {m.name || m.permit}
                                 </Link>
                               </td>
-                              <td style={{ ...s.td, textAlign: 'right' }}>
-                                {formatCurrencyCompact(m.currentRevenue)}
-                              </td>
+                              {!isMobile && (
+                                <td style={{ ...s.td, textAlign: 'right' }}>
+                                  {formatCurrencyCompact(m.currentRevenue)}
+                                </td>
+                              )}
                               <td style={{ ...s.td, textAlign: 'right', color: '#22c55e', fontWeight: 600 }}>
                                 {'\u25B2'} {formatPercent(m.changePercent)}
                               </td>
@@ -1410,7 +1477,7 @@ export default function AnalyticsClient() {
                         <thead>
                           <tr>
                             <th style={s.th}>Name</th>
-                            <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>
+                            {!isMobile && <th style={{ ...s.th, textAlign: 'right' }}>Revenue</th>}
                             <th style={{ ...s.th, textAlign: 'right' }}>Change</th>
                           </tr>
                         </thead>
@@ -1422,9 +1489,11 @@ export default function AnalyticsClient() {
                                   {m.name || m.permit}
                                 </Link>
                               </td>
-                              <td style={{ ...s.td, textAlign: 'right' }}>
-                                {formatCurrencyCompact(m.currentRevenue)}
-                              </td>
+                              {!isMobile && (
+                                <td style={{ ...s.td, textAlign: 'right' }}>
+                                  {formatCurrencyCompact(m.currentRevenue)}
+                                </td>
+                              )}
                               <td style={{ ...s.td, textAlign: 'right', color: '#ef4444', fontWeight: 600 }}>
                                 {'\u25BC'} {formatPercent(m.changePercent)}
                               </td>
@@ -1592,18 +1661,22 @@ export default function AnalyticsClient() {
                     <span style={{ fontSize: '11px', color: '#94a3b8' }} title="Select to compare">+/-</span>
                   </th>
                   <th style={{ ...s.th, cursor: 'pointer' }} onClick={() => handleOwnershipSort('group')}>
-                    Ownership Group{sortIndicator('group')}
+                    {isMobile ? 'Group' : 'Ownership Group'}{sortIndicator('group')}
                   </th>
-                  <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('locationCount')}>
-                    Locations{sortIndicator('locationCount')}
-                  </th>
+                  {!isMobile && (
+                    <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('locationCount')}>
+                      Locations{sortIndicator('locationCount')}
+                    </th>
+                  )}
                   <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('totalRevenue')}>
-                    Total Revenue{sortIndicator('totalRevenue')}
+                    Revenue{sortIndicator('totalRevenue')}
                   </th>
-                  <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('avgRevenuePerLocation')}>
-                    Avg/Location{sortIndicator('avgRevenuePerLocation')}
-                  </th>
-                  <th style={{ ...s.th, width: '50px' }}></th>
+                  {!isMobile && (
+                    <th style={{ ...s.th, cursor: 'pointer', textAlign: 'right' }} onClick={() => handleOwnershipSort('avgRevenuePerLocation')}>
+                      Avg/Location{sortIndicator('avgRevenuePerLocation')}
+                    </th>
+                  )}
+                  {!isMobile && <th style={{ ...s.th, width: '50px' }}></th>}
                 </tr>
               </thead>
               <tbody>
@@ -1647,30 +1720,36 @@ export default function AnalyticsClient() {
                         <td style={{ ...s.td, fontWeight: 600, color: '#1e293b' }}>
                           {g.group}
                         </td>
-                        {/* Location count */}
-                        <td style={{ ...s.td, textAlign: 'right' }}>
-                          {formatNumber(g.locationCount)}
-                        </td>
+                        {/* Location count (desktop only) */}
+                        {!isMobile && (
+                          <td style={{ ...s.td, textAlign: 'right' }}>
+                            {formatNumber(g.locationCount)}
+                          </td>
+                        )}
                         {/* Total revenue */}
                         <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, color: BRAND.primary }}>
                           {formatCurrencyCompact(g.totalRevenue)}
                         </td>
-                        {/* Avg per location */}
-                        <td style={{ ...s.td, textAlign: 'right', color: '#64748b' }}>
-                          {formatCurrencyCompact(g.avgRevenuePerLocation)}
-                        </td>
-                        {/* Expand arrow */}
-                        <td style={{ ...s.td, textAlign: 'center', padding: '6px 4px' }}>
-                          <span style={{ fontSize: '12px', color: '#64748b', display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-                            {'\u25B6'}
-                          </span>
-                        </td>
+                        {/* Avg per location (desktop only) */}
+                        {!isMobile && (
+                          <td style={{ ...s.td, textAlign: 'right', color: '#64748b' }}>
+                            {formatCurrencyCompact(g.avgRevenuePerLocation)}
+                          </td>
+                        )}
+                        {/* Expand arrow (desktop only) */}
+                        {!isMobile && (
+                          <td style={{ ...s.td, textAlign: 'center', padding: '6px 4px' }}>
+                            <span style={{ fontSize: '12px', color: '#64748b', display: 'inline-block', transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                              {'\u25B6'}
+                            </span>
+                          </td>
+                        )}
                       </tr>
 
                       {/* Expanded row detail: segments + locations */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={6} style={{ padding: 0, background: '#f8fafc' }}>
+                          <td colSpan={isMobile ? 3 : 6} style={{ padding: 0, background: '#f8fafc' }}>
                             <div style={{ padding: '16px 20px', borderTop: '1px solid #e2e8f0', borderBottom: '2px solid #e2e8f0' }}>
                               {compareLoading && !detail && (
                                 <div style={{ textAlign: 'center', padding: '20px 0', color: '#94a3b8', fontSize: '13px' }}>Loading details...</div>

@@ -7,6 +7,7 @@ import React, { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createServerClient } from '@/lib/supabase/server';
 import CustomerListClient from '@/components/customer-list-client';
+import PageContentWrapper from '@/components/page-content-wrapper';
 
 // Brand colors from thirstmetrics.com
 const brandColors = {
@@ -46,7 +47,7 @@ export default async function CustomersPage({
     <div style={styles.wrapper}>
       {/* Content */}
       <div style={styles.scrollArea}>
-        <div style={styles.container}>
+        <PageContentWrapper>
           <Suspense fallback={<div style={styles.loading}>Loading customers...</div>}>
             <CustomerListClient
               initialPage={page}
@@ -62,7 +63,7 @@ export default async function CustomersPage({
               userId={user.id}
             />
           </Suspense>
-        </div>
+        </PageContentWrapper>
       </div>
     </div>
   );
@@ -80,10 +81,6 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     overflowY: 'auto' as const,
     minHeight: 0,
-  },
-  container: {
-    padding: '24px',
-    width: '100%',
   },
   loading: {
     padding: '40px',

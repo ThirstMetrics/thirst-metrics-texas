@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import imageCompression from 'browser-image-compression';
+import { useIsMobile } from '@/lib/hooks/use-media-query';
 
 // PhotoType for the server-side upload
 type PhotoType = 'receipt' | 'menu' | 'product_display' | 'shelf' | 'other';
@@ -26,7 +27,8 @@ interface ActivityFormProps {
 
 export default function ActivityForm(props: ActivityFormProps) {
   const { permitNumber, userId, onSuccess, onCancel } = props;
-  
+  const isMobile = useIsMobile();
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gpsLocation, setGpsLocation] = useState<{
@@ -280,9 +282,15 @@ export default function ActivityForm(props: ActivityFormProps) {
   };
   
   return (
-    <form onSubmit={handleSubmit} style={styles.form}>
+    <form onSubmit={handleSubmit} style={{
+      ...styles.form,
+      ...(isMobile ? { padding: '12px', paddingBottom: '80px' } : {}),
+    }}>
       <div style={styles.header}>
-        <h2 style={styles.title}>Log Activity</h2>
+        <h2 style={{
+          ...styles.title,
+          ...(isMobile ? { fontSize: '20px' } : {}),
+        }}>Log Activity</h2>
         <button type="button" onClick={onCancel} style={styles.cancelButton}>
           Cancel
         </button>
@@ -327,14 +335,17 @@ export default function ActivityForm(props: ActivityFormProps) {
         </button>
         {expandedSections.basicInfo && (
         <>
-        <div style={styles.fieldGrid}>
+        <div style={{
+          ...styles.fieldGrid,
+          ...(isMobile ? { gridTemplateColumns: '1fr', gap: '12px' } : {}),
+        }}>
           <div style={styles.field}>
             <label style={styles.label}>Activity Type *</label>
             <select
               value={formData.activity_type}
               onChange={(e) => setFormData({ ...formData, activity_type: e.target.value as any })}
               required
-              style={styles.select}
+              style={{ ...styles.select, ...(isMobile ? { padding: '14px' } : {}) }}
             >
               <option value="visit">Visit</option>
               <option value="call">Call</option>
@@ -350,7 +361,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               value={formData.activity_date}
               onChange={(e) => setFormData({ ...formData, activity_date: e.target.value })}
               required
-              style={styles.input}
+              style={{ ...styles.input, ...(isMobile ? { padding: '14px' } : {}) }}
             />
           </div>
 
@@ -359,7 +370,7 @@ export default function ActivityForm(props: ActivityFormProps) {
             <select
               value={formData.outcome}
               onChange={(e) => setFormData({ ...formData, outcome: e.target.value as any })}
-              style={styles.select}
+              style={{ ...styles.select, ...(isMobile ? { padding: '14px' } : {}) }}
             >
               <option value="">Select outcome...</option>
               <option value="positive">Positive</option>
@@ -375,7 +386,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               type="date"
               value={formData.next_followup_date}
               onChange={(e) => setFormData({ ...formData, next_followup_date: e.target.value })}
-              style={styles.input}
+              style={{ ...styles.input, ...(isMobile ? { padding: '14px' } : {}) }}
             />
           </div>
         </div>
@@ -406,14 +417,17 @@ export default function ActivityForm(props: ActivityFormProps) {
         </button>
         {expandedSections.contact && (
         <>
-        <div style={styles.fieldGrid}>
+        <div style={{
+          ...styles.fieldGrid,
+          ...(isMobile ? { gridTemplateColumns: '1fr', gap: '12px' } : {}),
+        }}>
           <div style={styles.field}>
             <label style={styles.label}>Contact Name</label>
             <input
               type="text"
               value={formData.contact_name}
               onChange={(e) => setFormData({ ...formData, contact_name: e.target.value })}
-              style={styles.input}
+              style={{ ...styles.input, ...(isMobile ? { padding: '14px' } : {}) }}
             />
           </div>
 
@@ -423,7 +437,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               type="tel"
               value={formData.contact_cell_phone}
               onChange={(e) => setFormData({ ...formData, contact_cell_phone: e.target.value })}
-              style={styles.input}
+              style={{ ...styles.input, ...(isMobile ? { padding: '14px' } : {}) }}
             />
           </div>
 
@@ -433,7 +447,7 @@ export default function ActivityForm(props: ActivityFormProps) {
               type="email"
               value={formData.contact_email}
               onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-              style={styles.input}
+              style={{ ...styles.input, ...(isMobile ? { padding: '14px' } : {}) }}
             />
           </div>
 
@@ -442,7 +456,7 @@ export default function ActivityForm(props: ActivityFormProps) {
             <select
               value={formData.contact_preferred_method}
               onChange={(e) => setFormData({ ...formData, contact_preferred_method: e.target.value as any })}
-              style={styles.select}
+              style={{ ...styles.select, ...(isMobile ? { padding: '14px' } : {}) }}
             >
               <option value="">Select method...</option>
               <option value="text">Text</option>
@@ -566,47 +580,107 @@ export default function ActivityForm(props: ActivityFormProps) {
           <span style={styles.expandIcon}>{expandedSections.availability ? '▼' : '▶'}</span>
         </button>
         {expandedSections.availability && (
-        <div style={styles.availabilityGrid}>
-          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => (
-            <div key={day} style={styles.availabilityDay}>
-              <strong>{day}</strong>
-              <label style={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={formData.availability[`${day.toLowerCase()}_am` as keyof typeof formData.availability]}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      availability: {
-                        ...formData.availability,
-                        [`${day.toLowerCase()}_am`]: e.target.checked,
-                      },
-                    })
-                  }
-                  style={styles.checkbox}
-                />
-                AM
-              </label>
-              <label style={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={formData.availability[`${day.toLowerCase()}_pm` as keyof typeof formData.availability]}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      availability: {
-                        ...formData.availability,
-                        [`${day.toLowerCase()}_pm`]: e.target.checked,
-                      },
-                    })
-                  }
-                  style={styles.checkbox}
-                />
-                PM
-              </label>
+          isMobile ? (
+            /* Compact day chips for mobile */
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingBottom: '12px' }}>
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dayShort, idx) => {
+                const dayFull = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'][idx];
+                const amKey = `${dayFull}_am` as keyof typeof formData.availability;
+                const pmKey = `${dayFull}_pm` as keyof typeof formData.availability;
+                const amOn = formData.availability[amKey];
+                const pmOn = formData.availability[pmKey];
+                return (
+                  <div key={dayFull} style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '4px',
+                    minWidth: '44px',
+                  }}>
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>{dayShort}</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        availability: { ...formData.availability, [amKey]: !amOn },
+                      })}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        backgroundColor: amOn ? '#0d7377' : '#f1f5f9',
+                        color: amOn ? 'white' : '#94a3b8',
+                        minWidth: '36px',
+                      }}
+                    >AM</button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        availability: { ...formData.availability, [pmKey]: !pmOn },
+                      })}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        backgroundColor: pmOn ? '#0d7377' : '#f1f5f9',
+                        color: pmOn ? 'white' : '#94a3b8',
+                        minWidth: '36px',
+                      }}
+                    >PM</button>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          ) : (
+            <div style={styles.availabilityGrid}>
+              {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => (
+                <div key={day} style={styles.availabilityDay}>
+                  <strong>{day}</strong>
+                  <label style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={formData.availability[`${day.toLowerCase()}_am` as keyof typeof formData.availability]}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          availability: {
+                            ...formData.availability,
+                            [`${day.toLowerCase()}_am`]: e.target.checked,
+                          },
+                        })
+                      }
+                      style={styles.checkbox}
+                    />
+                    AM
+                  </label>
+                  <label style={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={formData.availability[`${day.toLowerCase()}_pm` as keyof typeof formData.availability]}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          availability: {
+                            ...formData.availability,
+                            [`${day.toLowerCase()}_pm`]: e.target.checked,
+                          },
+                        })
+                      }
+                      style={styles.checkbox}
+                    />
+                    PM
+                  </label>
+                </div>
+              ))}
+            </div>
+          )
         )}
       </div>
 
@@ -698,12 +772,30 @@ export default function ActivityForm(props: ActivityFormProps) {
         )}
       </div>
 
-      {/* Submit */}
-      <div style={styles.actions}>
-        <button type="submit" disabled={loading} style={styles.submitButton}>
+      {/* Submit — sticky on mobile */}
+      <div style={isMobile ? {
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        display: 'flex',
+        gap: '12px',
+        padding: '12px 16px',
+        paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
+        backgroundColor: 'white',
+        borderTop: '1px solid #e2e8f0',
+        zIndex: 100,
+      } : styles.actions}>
+        <button type="submit" disabled={loading} style={{
+          ...styles.submitButton,
+          ...(isMobile ? { flex: 1 } : {}),
+        }}>
           {loading ? 'Saving...' : 'Save Activity'}
         </button>
-        <button type="button" onClick={onCancel} style={styles.cancelButton}>
+        <button type="button" onClick={onCancel} style={{
+          ...styles.cancelButton,
+          ...(isMobile ? { flex: 0, minWidth: '80px' } : {}),
+        }}>
           Cancel
         </button>
       </div>

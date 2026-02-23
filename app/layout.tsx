@@ -8,6 +8,7 @@ import './globals.css';
 import { createServerClient } from '@/lib/supabase/server';
 import { getUserRole } from '@/lib/auth';
 import NavBarWrapper from '@/components/navbar-wrapper';
+import MobileBottomSpacer from '@/components/mobile-bottom-spacer';
 
 export const metadata: Metadata = {
   title: 'Thirst Metrics Texas',
@@ -51,6 +52,7 @@ export default async function RootLayout({
           />
         )}
         {children}
+        {isAuthenticated && <MobileBottomSpacer />}
         <div style={{ position: 'fixed', bottom: 4, right: 8, fontSize: '10px', opacity: 0.85, color: '#475569', zIndex: 9999, pointerEvents: 'none' }}>
           Build: {new Date().toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })} CT
         </div>

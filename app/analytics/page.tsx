@@ -60,7 +60,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   pageHeader: {
     background: 'linear-gradient(135deg, #0d7377 0%, #0a5f63 100%)',
-    padding: '24px',
+    padding: '16px 16px',
   },
   pageHeaderContent: {
     maxWidth: '1400px',
@@ -78,7 +78,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '4px',
   },
   content: {
-    padding: '24px',
+    padding: '16px',
     maxWidth: '1400px',
     margin: '0 auto',
   },

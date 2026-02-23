@@ -21,7 +21,6 @@ interface NavBarProps {
 }
 
 export default function NavBar({ currentPath, userEmail, userRole }: NavBarProps) {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const isMobile = useIsMobile();
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -173,80 +172,81 @@ export default function NavBar({ currentPath, userEmail, userRole }: NavBarProps
             </div>
           )}
 
-          {/* Mobile Hamburger Menu */}
+          {/* Mobile: user menu button (avatar only, opens dropdown) */}
           {isMobile && (
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              style={styles.hamburgerButton}
-              aria-label="Toggle menu"
-            >
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="white"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div ref={userMenuRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                style={styles.hamburgerButton}
+                aria-label="User menu"
               >
-                {mobileMenuOpen ? (
-                  <>
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </>
-                ) : (
-                  <>
-                    <line x1="3" y1="6" x2="21" y2="6" />
-                    <line x1="3" y1="12" x2="21" y2="12" />
-                    <line x1="3" y1="18" x2="21" y2="18" />
-                  </>
-                )}
-              </svg>
-            </button>
+                <div style={{
+                  ...styles.avatar,
+                  width: '28px',
+                  height: '28px',
+                  fontSize: '11px',
+                }}>{initials}</div>
+              </button>
+              {userMenuOpen && (
+                <div style={styles.dropdown}>
+                  <div style={styles.dropdownHeader}>
+                    <div style={styles.dropdownEmail}>{userEmail}</div>
+                    <span style={styles.dropdownRole}>{userRole || 'salesperson'}</span>
+                  </div>
+                  <div style={styles.dropdownDivider} />
+                  {userMenuItems.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      style={styles.dropdownItem}
+                      onClick={() => setUserMenuOpen(false)}
+                    >
+                      <span style={{ marginRight: '10px' }}>{item.icon}</span>
+                      {item.label}
+                    </Link>
+                  ))}
+                  <div style={styles.dropdownDivider} />
+                  <button onClick={handleLogout} style={styles.dropdownLogout}>
+                    <span style={{ marginRight: '10px' }}>🚪</span>
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
 
-      {/* Mobile Menu Dropdown */}
-      {isMobile && mobileMenuOpen && (
-        <div style={styles.mobileMenu}>
-          <nav style={styles.mobileNav}>
-            {navLinks.map((link) => (
+      {/* Mobile Bottom Tab Bar */}
+      {isMobile && (
+        <nav style={styles.bottomTabBar}>
+          {navLinks.slice(0, 5).map((link) => {
+            const active = isActive(link.href);
+            const icon = link.href === '/dashboard' ? '\u{1F3E0}'
+              : link.href === '/customers' ? '\u{1F465}'
+              : link.href === '/activities' ? '\u{1F4DD}'
+              : link.href === '/analytics' ? '\u{1F4CA}'
+              : link.href === '/admin' ? '\u{2699}\u{FE0F}'
+              : '\u{1F4C4}';
+            return (
               <Link
                 key={link.href}
                 href={link.href}
-                style={isActive(link.href) ? styles.mobileNavLinkActive : styles.mobileNavLink}
-                onClick={() => setMobileMenuOpen(false)}
+                style={{
+                  ...styles.bottomTab,
+                  color: active ? brandColors.primary : '#94a3b8',
+                }}
               >
-                {link.label}
+                <span style={{ fontSize: '20px', lineHeight: 1 }}>{icon}</span>
+                <span style={{
+                  fontSize: '10px',
+                  fontWeight: active ? '600' : '500',
+                  marginTop: '2px',
+                }}>{link.label}</span>
               </Link>
-            ))}
-          </nav>
-          <div style={styles.mobileUserSection}>
-            <div style={styles.mobileUserInfo}>
-              <span style={styles.mobileUserEmail} title={userEmail}>{userEmail}</span>
-              <span style={styles.mobileUserRole}>{userRole || 'salesperson'}</span>
-            </div>
-            {/* Mobile menu items */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '8px' }}>
-              {userMenuItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  style={styles.mobileMenuItem}
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <span style={{ marginRight: '10px' }}>{item.icon}</span>
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-            <button onClick={handleLogout} style={styles.mobileLogoutButton}>
-              🚪 Logout
-            </button>
-          </div>
-        </div>
+            );
+          })}
+        </nav>
       )}
     </header>
   );
@@ -255,7 +255,7 @@ export default function NavBar({ currentPath, userEmail, userRole }: NavBarProps
 const styles: Record<string, React.CSSProperties> = {
   navHeader: {
     background: brandColors.gradient,
-    padding: '0 24px',
+    padding: '0 16px',
     position: 'sticky',
     top: 0,
     zIndex: 1000,
@@ -410,92 +410,28 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  mobileMenu: {
-    backgroundColor: brandColors.primaryDark,
-    borderTop: '1px solid rgba(255,255,255,0.1)',
-    padding: '16px 0',
-  },
-  mobileNav: {
+  // Bottom Tab Bar
+  bottomTabBar: {
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
     display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    marginBottom: '16px',
-  },
-  mobileNavLink: {
-    padding: '12px 24px',
-    color: 'rgba(255,255,255,0.7)',
-    textDecoration: 'none',
-    fontSize: '15px',
-    fontWeight: '500',
-    display: 'block',
-  },
-  mobileNavLinkActive: {
-    padding: '12px 24px',
-    color: 'white',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    textDecoration: 'none',
-    fontSize: '15px',
-    fontWeight: '500',
-    display: 'block',
-    borderLeft: `3px solid ${brandColors.primary}`,
-  },
-  mobileUserSection: {
-    padding: '16px 24px',
-    borderTop: '1px solid rgba(255,255,255,0.1)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  mobileUserInfo: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  mobileUserEmail: {
-    color: 'white',
-    fontSize: '14px',
-    wordBreak: 'break-all',
-  },
-  mobileUserRole: {
-    backgroundColor: 'rgba(34, 211, 230, 0.2)',
-    color: brandColors.accent,
-    padding: '4px 10px',
-    borderRadius: '12px',
-    fontSize: '12px',
-    fontWeight: '500',
-    textTransform: 'capitalize',
-    alignSelf: 'flex-start',
-  },
-  mobileMenuItem: {
-    display: 'flex',
+    justifyContent: 'space-around',
     alignItems: 'center',
-    padding: '10px 0',
-    color: 'rgba(255,255,255,0.8)',
-    textDecoration: 'none',
-    fontSize: '14px',
-    fontWeight: '500',
+    backgroundColor: 'white',
+    borderTop: '1px solid #e2e8f0',
+    paddingTop: '6px',
+    paddingBottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
+    zIndex: 1000,
   },
-  mobileLogoutButton: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    border: '1px solid rgba(255,255,255,0.3)',
-    color: 'white',
-    padding: '10px 16px',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    width: '100%',
-    marginTop: '4px',
+  bottomTab: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textDecoration: 'none',
+    padding: '4px 8px',
+    minWidth: '48px',
   },
 };
 
-// Mobile-specific styles override
-if (typeof window !== 'undefined') {
-  const mobileMediaQuery = window.matchMedia('(max-width: 767px)');
-  if (mobileMediaQuery.matches) {
-    styles.navContent = {
-      ...styles.navContent,
-      height: '56px',
-    };
-  }
-}

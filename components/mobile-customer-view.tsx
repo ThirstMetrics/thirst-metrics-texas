@@ -266,6 +266,7 @@ export default function MobileCustomerView({
     setShowActionSheet(true);
     setLastActivity(null);
     setLoadingActivity(true);
+    // Clear old selected customer data before loading new
 
     // Lazy-fetch last activity
     try {
@@ -298,11 +299,9 @@ export default function MobileCustomerView({
     }
   };
 
-  // Close action sheet
+  // Close action sheet — keep selectedCustomer to prevent map zoom-out
   const closeActionSheet = () => {
     setShowActionSheet(false);
-    setSelectedCustomer(null);
-    setLastActivity(null);
   };
 
   // Handle activity success
@@ -533,8 +532,20 @@ export default function MobileCustomerView({
         <>
           <div style={styles.actionSheetOverlay} onClick={closeActionSheet} />
           <div style={styles.actionSheet}>
-            <div style={styles.actionSheetHandle} />
-            <div style={styles.actionSheetContent}>
+            {/* Fixed header: handle bar + close button */}
+            <div style={styles.actionSheetFixedHeader}>
+              <div style={styles.actionSheetHandle} />
+              <button
+                onClick={closeActionSheet}
+                style={styles.actionSheetCloseButton}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Scrollable body */}
+            <div style={styles.actionSheetBody}>
               {/* Customer name + star + tier badge */}
               <div style={styles.actionSheetHeader}>
                 <button
@@ -573,30 +584,14 @@ export default function MobileCustomerView({
               {selectedCustomer.address && (
                 <p style={styles.actionSheetAddress}>{selectedCustomer.address}</p>
               )}
-              <p style={styles.actionSheetPermit}>
-                Permit: {selectedCustomer.permit_number}
-              </p>
 
-              {/* Revenue breakdown */}
-              <div style={styles.revenueRow}>
-                <div style={styles.revenueItem}>
-                  <span style={styles.revenueLabel}>Wine</span>
-                  <span style={styles.revenueValue}>
-                    {formatCurrency(selectedCustomer.wine_revenue || 0)}
-                  </span>
-                </div>
-                <div style={styles.revenueItem}>
-                  <span style={styles.revenueLabel}>Beer</span>
-                  <span style={styles.revenueValue}>
-                    {formatCurrency(selectedCustomer.beer_revenue || 0)}
-                  </span>
-                </div>
-                <div style={styles.revenueItem}>
-                  <span style={styles.revenueLabel}>Spirits</span>
-                  <span style={styles.revenueValue}>
-                    {formatCurrency(selectedCustomer.liquor_revenue || 0)}
-                  </span>
-                </div>
+              {/* Revenue breakdown — inline compact row */}
+              <div style={styles.revenueInline}>
+                <span style={styles.revenueInlineItem}>Wine {formatCurrency(selectedCustomer.wine_revenue || 0)}</span>
+                <span style={styles.revenueInlineDot}>{'\u00B7'}</span>
+                <span style={styles.revenueInlineItem}>Beer {formatCurrency(selectedCustomer.beer_revenue || 0)}</span>
+                <span style={styles.revenueInlineDot}>{'\u00B7'}</span>
+                <span style={styles.revenueInlineItem}>Spirits {formatCurrency(selectedCustomer.liquor_revenue || 0)}</span>
               </div>
 
               {/* Last activity (lazy-loaded) */}
@@ -629,8 +624,8 @@ export default function MobileCustomerView({
                     )}
                     {lastActivity.notes && (
                       <p style={styles.activityNotes}>
-                        "{lastActivity.notes.length > 120
-                          ? lastActivity.notes.substring(0, 120) + '...'
+                        "{lastActivity.notes.length > 80
+                          ? lastActivity.notes.substring(0, 80) + '...'
                           : lastActivity.notes}"
                       </p>
                     )}
@@ -639,24 +634,21 @@ export default function MobileCustomerView({
                   <p style={styles.noActivity}>No previous activities recorded</p>
                 )}
               </div>
+            </div>
 
-              {/* Action buttons */}
-              <div style={styles.actionSheetButtons}>
-                <button
-                  onClick={openActivitySheet}
-                  style={styles.actionButtonPrimary}
-                >
-                  📝 Record Activity
-                </button>
-                <button
-                  onClick={goToCustomerDetail}
-                  style={styles.actionButtonSecondary}
-                >
-                  📋 View Details
-                </button>
-              </div>
-              <button onClick={closeActionSheet} style={styles.actionButtonCancel}>
-                Cancel
+            {/* Fixed bottom action buttons */}
+            <div style={styles.actionSheetFooter}>
+              <button
+                onClick={openActivitySheet}
+                style={styles.actionButtonPrimary}
+              >
+                📝 Record Activity
+              </button>
+              <button
+                onClick={goToCustomerDetail}
+                style={styles.actionButtonSecondary}
+              >
+                📋 View Details
               </button>
             </div>
           </div>
@@ -886,35 +878,66 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 0,
     left: 0,
     right: 0,
-    maxHeight: '70vh',
-    overflowY: 'auto' as const,
+    maxHeight: '50vh',
     backgroundColor: 'white',
     borderTopLeftRadius: '20px',
     borderTopRightRadius: '20px',
     zIndex: 201,
-    paddingBottom: 'env(safe-area-inset-bottom, 20px)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    paddingBottom: 'env(safe-area-inset-bottom, 12px)',
+  },
+  actionSheetFixedHeader: {
+    position: 'relative' as const,
+    flexShrink: 0,
   },
   actionSheetHandle: {
     width: '40px',
     height: '4px',
     backgroundColor: '#e2e8f0',
     borderRadius: '2px',
-    margin: '12px auto',
+    margin: '10px auto 6px',
   },
-  actionSheetContent: {
-    padding: '0 20px 20px',
+  actionSheetCloseButton: {
+    position: 'absolute' as const,
+    top: '8px',
+    right: '12px',
+    width: '32px',
+    height: '32px',
+    border: 'none',
+    background: '#f1f5f9',
+    borderRadius: '50%',
+    fontSize: '20px',
+    color: '#64748b',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    lineHeight: 1,
+  },
+  actionSheetBody: {
+    flex: 1,
+    overflowY: 'auto' as const,
+    padding: '0 16px',
+    minHeight: 0,
+  },
+  actionSheetFooter: {
+    display: 'flex',
+    gap: '10px',
+    padding: '10px 16px 0',
+    flexShrink: 0,
+    borderTop: '1px solid #f1f5f9',
   },
   actionSheetHeader: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: '8px',
   },
   actionSheetTitle: {
-    fontSize: '18px',
+    fontSize: '17px',
     fontWeight: '600',
     color: '#1e293b',
-    margin: '0 0 4px 0',
+    margin: '0 0 2px 0',
     flex: 1,
   },
   tierBadge: {
@@ -927,48 +950,33 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   actionSheetAddress: {
-    fontSize: '14px',
-    color: '#64748b',
-    margin: '0 0 2px 0',
-  },
-  actionSheetPermit: {
     fontSize: '13px',
-    color: '#94a3b8',
-    margin: '0 0 12px 0',
+    color: '#64748b',
+    margin: '0 0 6px 0',
   },
-  // Revenue row
-  revenueRow: {
+  // Revenue inline compact row
+  revenueInline: {
     display: 'flex',
-    gap: '8px',
-    marginBottom: '12px',
+    alignItems: 'center',
+    gap: '6px',
+    marginBottom: '8px',
+    flexWrap: 'wrap' as const,
   },
-  revenueItem: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-    borderRadius: '8px',
-    padding: '10px',
-    textAlign: 'center' as const,
-  },
-  revenueLabel: {
-    display: 'block',
-    fontSize: '11px',
+  revenueInlineItem: {
+    fontSize: '13px',
     fontWeight: '600',
-    color: '#94a3b8',
-    marginBottom: '2px',
-    textTransform: 'uppercase' as const,
-  },
-  revenueValue: {
-    display: 'block',
-    fontSize: '15px',
-    fontWeight: '700',
     color: brandColors.primaryDark,
+  },
+  revenueInlineDot: {
+    color: '#cbd5e1',
+    fontSize: '13px',
   },
   // Activity section
   activitySection: {
     backgroundColor: '#f8fafc',
     borderRadius: '8px',
-    padding: '12px',
-    marginBottom: '14px',
+    padding: '10px',
+    marginBottom: '8px',
   },
   activityLoading: {
     fontSize: '13px',
@@ -1019,42 +1027,26 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center' as const,
   },
   // Action buttons
-  actionSheetButtons: {
-    display: 'flex',
-    gap: '12px',
-    marginBottom: '12px',
-  },
   actionButtonPrimary: {
     flex: 1,
-    padding: '14px',
+    padding: '12px',
     border: 'none',
-    borderRadius: '12px',
+    borderRadius: '10px',
     backgroundColor: brandColors.primary,
     color: 'white',
-    fontSize: '15px',
+    fontSize: '14px',
     fontWeight: '600',
     cursor: 'pointer',
   },
   actionButtonSecondary: {
     flex: 1,
-    padding: '14px',
+    padding: '12px',
     border: `2px solid ${brandColors.primary}`,
-    borderRadius: '12px',
+    borderRadius: '10px',
     backgroundColor: 'white',
     color: brandColors.primary,
-    fontSize: '15px',
+    fontSize: '14px',
     fontWeight: '600',
-    cursor: 'pointer',
-  },
-  actionButtonCancel: {
-    width: '100%',
-    padding: '14px',
-    border: 'none',
-    borderRadius: '12px',
-    backgroundColor: '#f1f5f9',
-    color: '#64748b',
-    fontSize: '15px',
-    fontWeight: '500',
     cursor: 'pointer',
   },
   // Non-geocoded customers panel

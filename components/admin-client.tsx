@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import dynamic from 'next/dynamic';
+import { useIsMobile } from '@/lib/hooks/use-media-query';
 
 // Dynamic import to avoid SSR issues and keep bundle size manageable
 const AdminEnrichments = dynamic(() => import('@/components/admin-enrichments'), {
@@ -161,7 +162,12 @@ const formatDateTime = (d: string) =>
 // Main Component
 // ============================================
 
+// Mobile-visible tabs only
+const MOBILE_TAB_KEYS: Set<TabKey> = new Set(['overview', 'users', 'enrichments']);
+
 export default function AdminClient() {
+  const isMobile = useIsMobile();
+
   // Tab state
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
@@ -760,22 +766,36 @@ export default function AdminClient() {
   // Render: Tab Bar
   // ============================================
 
-  const renderTabs = () => (
-    <div style={s.tabBar}>
-      {TABS.map((tab) => (
-        <button
-          key={tab.key}
-          onClick={() => setActiveTab(tab.key)}
-          style={{
-            ...s.tabPill,
-            ...(activeTab === tab.key ? s.tabPillActive : {}),
-          }}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
+  // Auto-redirect if mobile and active tab is hidden
+  useEffect(() => {
+    if (isMobile && !MOBILE_TAB_KEYS.has(activeTab)) {
+      setActiveTab('overview');
+    }
+  }, [isMobile, activeTab]);
+
+  const renderTabs = () => {
+    const visibleTabs = isMobile
+      ? TABS.filter((t) => MOBILE_TAB_KEYS.has(t.key))
+      : TABS;
+
+    return (
+      <div style={s.tabBar}>
+        {visibleTabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              ...s.tabPill,
+              ...(activeTab === tab.key ? s.tabPillActive : {}),
+              ...(isMobile ? { padding: '8px 14px', fontSize: '13px' } : {}),
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   // ============================================
   // Render: Loading Spinner
