@@ -54,20 +54,20 @@ const TIER_COLOR_HEX: Record<TierColor, string> = {
 };
 
 // Tier visibility by zoom level (progressive disclosure)
-// At wide zoom: only top-tier (green). As user zooms in, reveal more tiers.
+// Show top tiers at state zoom, reveal lower-revenue tiers as user zooms in.
 const TIER_PRIORITY: Record<TierColor, number> = {
   green: 1,      // always visible
-  lightgreen: 2, // zoom >= 7
-  yellow: 3,     // zoom >= 9
-  orange: 4,     // zoom >= 11
-  red: 5,        // zoom >= 13 (street level)
+  lightgreen: 2, // zoom >= 5 (visible at state level)
+  yellow: 3,     // zoom >= 6
+  orange: 4,     // zoom >= 8
+  red: 5,        // zoom >= 10 (metro level)
 };
 
 function getMaxTierForZoom(zoom: number): number {
-  if (zoom >= 13) return 5;
-  if (zoom >= 11) return 4;
-  if (zoom >= 9) return 3;
-  if (zoom >= 7) return 2;
+  if (zoom >= 10) return 5;  // all pins at metro zoom
+  if (zoom >= 8) return 4;
+  if (zoom >= 6) return 3;
+  if (zoom >= 5) return 2;
   return 1;
 }
 
@@ -77,6 +77,12 @@ const TEXAS_CENTER = {
   lng: -100.0,
   zoom: 5,
 };
+
+// Texas bounding box (with padding) — prevents zooming/panning outside Texas
+const TEXAS_BOUNDS: [[number, number], [number, number]] = [
+  [-107.5, 25.5],  // Southwest corner [lng, lat]
+  [-93.0, 37.0],   // Northeast corner [lng, lat]
+];
 
 // Free tile style - OpenFreeMap (no key required, based on OSM data)
 const FREE_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
@@ -205,6 +211,8 @@ export default function CustomerMap({
         style: FREE_STYLE_URL,
         center: [TEXAS_CENTER.lng, TEXAS_CENTER.lat],
         zoom: TEXAS_CENTER.zoom,
+        minZoom: 4.5,
+        maxBounds: TEXAS_BOUNDS,
       });
 
       map.current.addControl(new maplibregl.NavigationControl(), 'top-right');

@@ -446,42 +446,46 @@ export default function ActivitiesClient() {
   const renderActivityCard = (activity: SalesActivity) => {
     const isExpanded = expandedId === activity.id;
     const photoCount = activity.activity_photos?.length || 0;
+    const customerName = activity.customer_name || activity.tabc_permit_number;
+    const truncatedName = isMobile && customerName.length > 28
+      ? customerName.substring(0, 28) + '...'
+      : customerName;
 
     return (
       <div key={activity.id} style={styles.card}>
-        {/* Card Header - always visible, clickable to expand */}
+        {/* Row - full width, single line */}
         <div
           onClick={() => setExpandedId(isExpanded ? null : activity.id)}
-          style={styles.cardHeader}
+          style={styles.cardRow}
         >
-          <div style={styles.cardHeaderLeft}>
-            <span style={styles.typeIcon}>
-              {ACTIVITY_ICONS[activity.activity_type] || '\u{1F4CB}'}
+          <span style={styles.rowIcon}>
+            {ACTIVITY_ICONS[activity.activity_type] || '\u{1F4CB}'}
+          </span>
+          <Link
+            href={`/customers/${activity.tabc_permit_number}`}
+            style={styles.rowName}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {truncatedName}
+          </Link>
+          <span style={styles.rowDate}>{formatDate(activity.activity_date)}</span>
+          {activity.outcome && (
+            <span
+              style={{
+                ...styles.rowOutcome,
+                backgroundColor: OUTCOME_COLORS[activity.outcome] || '#9ca3af',
+              }}
+            >
+              {isMobile
+                ? (activity.outcome === 'no_contact' ? 'N/C' : OUTCOME_LABELS[activity.outcome].charAt(0))
+                : OUTCOME_LABELS[activity.outcome]}
             </span>
-            <div style={styles.cardHeaderInfo}>
-              <div style={styles.cardTopRow}>
-                <span style={styles.typeLabel}>
-                  {ACTIVITY_LABELS[activity.activity_type] || activity.activity_type}
-                </span>
-                {activity.outcome && (
-                  <span
-                    style={{
-                      ...styles.outcomeBadge,
-                      backgroundColor: OUTCOME_COLORS[activity.outcome] || '#9ca3af',
-                    }}
-                  >
-                    {OUTCOME_LABELS[activity.outcome] || activity.outcome}
-                  </span>
-                )}
-                {photoCount > 0 && (
-                  <span style={styles.photoBadge}>
-                    {'\u{1F4F7}'} {photoCount}
-                  </span>
-                )}
-              </div>
-              <div style={styles.cardDate}>{formatDate(activity.activity_date)}</div>
-            </div>
-          </div>
+          )}
+          {photoCount > 0 && !isMobile && (
+            <span style={styles.rowPhotoBadge}>
+              {'\u{1F4F7}'}{photoCount}
+            </span>
+          )}
           <span
             style={{
               ...styles.expandArrow,
@@ -492,31 +496,15 @@ export default function ActivitiesClient() {
           </span>
         </div>
 
-        {/* Card Summary - always visible */}
-        <div style={styles.cardBody}>
-          <Link
-            href={`/customers/${activity.tabc_permit_number}`}
-            style={styles.permitLink}
-          >
-            {activity.customer_name || activity.tabc_permit_number}
-          </Link>
-          {activity.contact_name && (
-            <div style={styles.contactName}>
-              Contact: {activity.contact_name}
-            </div>
-          )}
-          {activity.notes && !isExpanded && (
-            <div style={styles.notesPreview}>
-              {activity.notes.length > 120
-                ? activity.notes.substring(0, 120) + '...'
-                : activity.notes}
-            </div>
-          )}
-        </div>
-
         {/* Expanded Details */}
         {isExpanded && (
           <div style={styles.expandedSection}>
+            {activity.contact_name && (
+              <div style={styles.detailBlock}>
+                <div style={styles.detailLabel}>Contact</div>
+                <div style={styles.detailValue}>{activity.contact_name}</div>
+              </div>
+            )}
             {activity.notes && (
               <div style={styles.detailBlock}>
                 <div style={styles.detailLabel}>Notes</div>
@@ -549,11 +537,10 @@ export default function ActivitiesClient() {
                 </div>
               </div>
             )}
-            {(activity.contact_name || activity.contact_cell_phone || activity.contact_email) && (
+            {(activity.contact_cell_phone || activity.contact_email) && (
               <div style={styles.detailBlock}>
                 <div style={styles.detailLabel}>Contact Details</div>
                 <div style={styles.detailValue}>
-                  {activity.contact_name && <div>{activity.contact_name}</div>}
                   {activity.contact_cell_phone && <div>{activity.contact_cell_phone}</div>}
                   {activity.contact_email && <div>{activity.contact_email}</div>}
                 </div>
@@ -1105,101 +1092,69 @@ const styles: Record<string, React.CSSProperties> = {
   cardList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: '2px',
   },
 
-  // Card
+  // Card - thin row style
   card: {
     background: 'white',
-    borderRadius: '12px',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+    borderRadius: '6px',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
     overflow: 'hidden',
-    transition: 'box-shadow 0.15s',
   },
-  cardHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '10px 12px',
-    cursor: 'pointer',
-    userSelect: 'none',
-  },
-  cardHeaderLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    flex: 1,
-    minWidth: 0,
-  },
-  typeIcon: {
-    fontSize: '24px',
-    flexShrink: 0,
-  },
-  cardHeaderInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  cardTopRow: {
+  cardRow: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    flexWrap: 'wrap',
+    padding: '8px 10px',
+    cursor: 'pointer',
+    userSelect: 'none',
+    width: '100%',
+    boxSizing: 'border-box',
+  } as React.CSSProperties,
+  rowIcon: {
+    fontSize: '16px',
+    flexShrink: 0,
+    lineHeight: '1',
   },
-  typeLabel: {
-    fontSize: '15px',
-    fontWeight: '600',
-    color: '#1e293b',
-  },
-  outcomeBadge: {
-    fontSize: '11px',
-    padding: '2px 10px',
-    borderRadius: '12px',
-    color: 'white',
-    fontWeight: '600',
-    whiteSpace: 'nowrap',
-  },
-  photoBadge: {
-    fontSize: '12px',
-    padding: '2px 8px',
-    borderRadius: '10px',
-    background: '#f1f5f9',
-    color: '#64748b',
-    fontWeight: '500',
-    whiteSpace: 'nowrap',
-  },
-  cardDate: {
+  rowName: {
     fontSize: '13px',
+    fontWeight: '600',
+    color: '#0d7377',
+    textDecoration: 'none',
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  } as React.CSSProperties,
+  rowDate: {
+    fontSize: '12px',
     color: '#94a3b8',
-    marginTop: '2px',
-  },
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
+  } as React.CSSProperties,
+  rowOutcome: {
+    fontSize: '10px',
+    padding: '2px 6px',
+    borderRadius: '8px',
+    color: 'white',
+    fontWeight: '700',
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
+    lineHeight: '1.3',
+  } as React.CSSProperties,
+  rowPhotoBadge: {
+    fontSize: '11px',
+    color: '#64748b',
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
+  } as React.CSSProperties,
   expandArrow: {
-    fontSize: '14px',
+    fontSize: '12px',
     color: '#94a3b8',
     transition: 'transform 0.2s',
     flexShrink: 0,
-    marginLeft: '8px',
-  },
-
-  // Card body (always visible)
-  cardBody: {
-    padding: '0 12px 10px 46px',
-  },
-  permitLink: {
-    fontSize: '13px',
-    color: '#0d7377',
-    textDecoration: 'none',
-    fontWeight: '500',
-  },
-  contactName: {
-    fontSize: '13px',
-    color: '#64748b',
-    marginTop: '4px',
-  },
-  notesPreview: {
-    fontSize: '13px',
-    color: '#94a3b8',
-    marginTop: '6px',
-    lineHeight: '1.4',
   },
 
   // Expanded section

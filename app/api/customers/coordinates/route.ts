@@ -76,7 +76,7 @@ interface CustomerCoordinateRow {
 }
 
 // Max customers to return for map performance
-const MAX_MAP_MARKERS = 500;
+const MAX_MAP_MARKERS = 2000;
 
 /**
  * Assign Pareto-style tier colors based on cumulative revenue
