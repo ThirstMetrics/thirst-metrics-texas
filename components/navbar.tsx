@@ -78,11 +78,11 @@ export default function NavBar({ currentPath, userEmail, userRole }: NavBarProps
 
   return (
     <header style={styles.navHeader}>
-      <div style={styles.navContent}>
+      <div style={{ ...styles.navContent, height: isMobile ? '44px' : '64px' }}>
         <div style={styles.navLeft}>
           {/* Logo */}
           <Link href="/dashboard" style={styles.logoLink}>
-            <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={styles.logoIcon}>
+            <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ ...styles.logoIcon, width: isMobile ? '28px' : '36px', height: isMobile ? '28px' : '36px' }}>
               <rect width="40" height="40" rx="9" fill="#0d7377"/>
               <rect x="6" y="22" width="5.5" height="12" rx="1.5" fill="white" opacity="0.55"/>
               <rect x="7.25" y="19.5" width="3" height="3" rx="0.8" fill="white" opacity="0.55"/>
@@ -98,7 +98,7 @@ export default function NavBar({ currentPath, userEmail, userRole }: NavBarProps
               <circle cx="23.75" cy="14.5" r="1.5" fill="#22d3e6"/>
               <circle cx="31.25" cy="9" r="1.5" fill="#22d3e6"/>
             </svg>
-            <span style={styles.logoText}>Thirst Metrics</span>
+            {!isMobile && <span style={styles.logoText}>Thirst Metrics</span>}
           </Link>
 
           {/* Desktop Navigation */}

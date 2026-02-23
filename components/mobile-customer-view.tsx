@@ -871,7 +871,7 @@ const styles: Record<string, React.CSSProperties> = {
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.4)',
-    zIndex: 200,
+    zIndex: 1100,
   },
   actionSheet: {
     position: 'fixed',
@@ -882,7 +882,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'white',
     borderTopLeftRadius: '20px',
     borderTopRightRadius: '20px',
-    zIndex: 201,
+    zIndex: 1101,
     display: 'flex',
     flexDirection: 'column' as const,
     paddingBottom: 'env(safe-area-inset-bottom, 12px)',

@@ -42,7 +42,6 @@ export default async function AdminPage() {
       <div style={styles.pageHeader}>
         <div style={styles.pageHeaderContent}>
           <h1 style={styles.title}>Admin Portal</h1>
-          <p style={styles.subtitle}>User management, data ingestion, and system analytics.</p>
         </div>
       </div>
 
@@ -61,21 +60,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
   pageHeader: {
     background: 'linear-gradient(135deg, #0d7377 0%, #0a5f63 100%)',
-    padding: '16px 16px',
+    padding: '10px 16px',
   },
   pageHeaderContent: {
     maxWidth: '1400px',
     margin: '0 auto',
   },
   title: {
-    fontSize: '28px',
+    fontSize: '20px',
     fontWeight: '700',
     color: 'white',
     margin: 0,
-  },
-  subtitle: {
-    fontSize: '14px',
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: '4px',
   },
 };

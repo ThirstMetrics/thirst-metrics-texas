@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useIsMobile } from '@/lib/hooks/use-media-query';
 
 interface DashboardStats {
   totalCustomers: number;
@@ -41,6 +42,7 @@ export default function DashboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     fetchDashboardData();
@@ -159,44 +161,48 @@ export default function DashboardClient() {
   const totalOutcomes = Object.values(outcomeCounts).reduce((s, v) => s + v, 0);
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, gap: isMobile ? '12px' : '24px' }}>
       {/* Summary Cards */}
-      <div style={styles.cardsGrid}>
-        <div style={styles.card}>
-          <div style={styles.cardIcon}>🏪</div>
+      <div style={{
+        ...styles.cardsGrid,
+        gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: isMobile ? '8px' : '16px',
+      }}>
+        <div style={{ ...styles.card, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '16px' }}>
+          <div style={{ ...styles.cardIcon, fontSize: isMobile ? '22px' : '32px' }}>🏪</div>
           <div style={styles.cardContent}>
-            <div style={styles.cardValue}>{formatNumber(data.stats.totalCustomers)}</div>
-            <div style={styles.cardLabel}>Total Customers</div>
+            <div style={{ ...styles.cardValue, fontSize: isMobile ? '20px' : '28px' }}>{formatNumber(data.stats.totalCustomers)}</div>
+            <div style={{ ...styles.cardLabel, fontSize: isMobile ? '11px' : '14px' }}>Total Customers</div>
           </div>
         </div>
 
-        <div style={styles.card}>
-          <div style={styles.cardIcon}>📊</div>
+        <div style={{ ...styles.card, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '16px' }}>
+          <div style={{ ...styles.cardIcon, fontSize: isMobile ? '22px' : '32px' }}>📊</div>
           <div style={styles.cardContent}>
-            <div style={styles.cardValue}>{data.stats.recentActivityCount}</div>
-            <div style={styles.cardLabel}>Activities (7 days)</div>
+            <div style={{ ...styles.cardValue, fontSize: isMobile ? '20px' : '28px' }}>{data.stats.recentActivityCount}</div>
+            <div style={{ ...styles.cardLabel, fontSize: isMobile ? '11px' : '14px' }}>Activities (7d)</div>
           </div>
         </div>
 
-        <div style={styles.card}>
-          <div style={styles.cardIcon}>📅</div>
+        <div style={{ ...styles.card, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '16px' }}>
+          <div style={{ ...styles.cardIcon, fontSize: isMobile ? '22px' : '32px' }}>📅</div>
           <div style={styles.cardContent}>
-            <div style={styles.cardValue}>{data.stats.upcomingFollowupsCount}</div>
-            <div style={styles.cardLabel}>Upcoming Follow-ups</div>
+            <div style={{ ...styles.cardValue, fontSize: isMobile ? '20px' : '28px' }}>{data.stats.upcomingFollowupsCount}</div>
+            <div style={{ ...styles.cardLabel, fontSize: isMobile ? '11px' : '14px' }}>Follow-ups</div>
           </div>
         </div>
 
         {data.stats.topCustomer && (
-          <div style={styles.card}>
-            <div style={styles.cardIcon}>🏆</div>
+          <div style={{ ...styles.card, padding: isMobile ? '10px' : '20px', gap: isMobile ? '8px' : '16px' }}>
+            <div style={{ ...styles.cardIcon, fontSize: isMobile ? '22px' : '32px' }}>🏆</div>
             <div style={styles.cardContent}>
-              <div style={styles.cardValueSmall}>
+              <div style={{ ...styles.cardValueSmall, fontSize: isMobile ? '16px' : '20px' }}>
                 {formatCurrency(data.stats.topCustomer.revenue)}
               </div>
-              <div style={styles.cardLabel}>Top Customer Revenue</div>
+              <div style={{ ...styles.cardLabel, fontSize: isMobile ? '11px' : '14px' }}>Top Revenue</div>
               <div style={styles.cardSubtext}>
-                {data.stats.topCustomer.name?.substring(0, 25)}
-                {(data.stats.topCustomer.name?.length || 0) > 25 ? '...' : ''}
+                {data.stats.topCustomer.name?.substring(0, 20)}
+                {(data.stats.topCustomer.name?.length || 0) > 20 ? '...' : ''}
               </div>
             </div>
           </div>
@@ -205,7 +211,7 @@ export default function DashboardClient() {
 
       {/* This Week's Performance */}
       {totalActivities > 0 && (
-        <div style={styles.section}>
+        <div style={{ ...styles.section, padding: isMobile ? '12px' : '20px' }}>
           <h2 style={styles.sectionTitle}>This Week's Performance</h2>
           <div style={styles.performanceGrid}>
             {/* Activities by Type */}
@@ -264,7 +270,7 @@ export default function DashboardClient() {
       )}
 
       {/* Quick Actions */}
-      <div style={styles.section}>
+      <div style={{ ...styles.section, padding: isMobile ? '12px' : '20px' }}>
         <h2 style={styles.sectionTitle}>Quick Actions</h2>
         <div style={styles.actionsGrid}>
           <Link href="/customers" style={styles.actionButton}>
@@ -283,7 +289,7 @@ export default function DashboardClient() {
       </div>
 
       {/* Recent Activity Feed */}
-      <div style={styles.section}>
+      <div style={{ ...styles.section, padding: isMobile ? '12px' : '20px' }}>
         <div style={styles.sectionHeader}>
           <h2 style={{ ...styles.sectionTitle, marginBottom: 0 }}>Recent Activity</h2>
           <Link href="/activities" style={styles.viewAllLink}>
@@ -345,7 +351,7 @@ export default function DashboardClient() {
 
       {/* Upcoming Follow-ups */}
       {data.upcomingFollowups.length > 0 && (
-        <div style={styles.section}>
+        <div style={{ ...styles.section, padding: isMobile ? '12px' : '20px' }}>
           <h2 style={styles.sectionTitle}>Upcoming Follow-ups</h2>
           <div style={styles.followupList}>
             {data.upcomingFollowups.map((followup) => (

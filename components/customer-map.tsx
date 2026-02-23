@@ -78,6 +78,14 @@ export default function CustomerMap({
   const [isLoading, setIsLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
 
+  // Stable refs for callbacks to prevent useEffect re-fires
+  const onPinTapRef = useRef(onPinTap);
+  onPinTapRef.current = onPinTap;
+  const onCustomerClickRef = useRef(onCustomerClick);
+  onCustomerClickRef.current = onCustomerClick;
+  // Track whether initial fitBounds has run for current customer set
+  const hasFitBoundsRef = useRef(false);
+
   // Filter customers with valid coordinates
   const customersWithCoords = customers.filter(
     (c) => c.lat != null && c.lng != null && !isNaN(c.lat) && !isNaN(c.lng)
@@ -209,6 +217,16 @@ export default function CustomerMap({
     };
   }, []);
 
+  // Reset fitBounds flag when customers actually change
+  const prevCustomerIdsRef = useRef<string>('');
+  useEffect(() => {
+    const ids = customersWithCoords.map((c) => c.id).sort().join(',');
+    if (ids !== prevCustomerIdsRef.current) {
+      prevCustomerIdsRef.current = ids;
+      hasFitBoundsRef.current = false;
+    }
+  }, [customersWithCoords]);
+
   // Update markers when customers change
   useEffect(() => {
     if (!map.current || isLoading) return;
@@ -232,11 +250,11 @@ export default function CustomerMap({
         .setLngLat([customer.lng, customer.lat])
         .addTo(map.current!);
 
-      // If onPinTap is provided (mobile), use it instead of popups
-      if (onPinTap) {
+      // Use stable refs for callbacks to prevent re-fires
+      if (onPinTapRef.current) {
         el.addEventListener('click', (e) => {
           e.stopPropagation();
-          onPinTap(customer);
+          onPinTapRef.current?.(customer);
         });
       } else {
         // Desktop: use popups
@@ -255,39 +273,38 @@ export default function CustomerMap({
         // Click handler for desktop
         el.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (onCustomerClick) {
-            onCustomerClick(customer.id);
-          }
+          onCustomerClickRef.current?.(customer.id);
         });
       }
 
       markersRef.current.set(customer.id, marker);
     });
 
-    // Fit bounds if there are multiple customers
-    if (customersWithCoords.length > 1 && !selectedCustomerId) {
-      const bounds = new maplibregl.LngLatBounds();
-      customersWithCoords.forEach((customer) => {
-        bounds.extend([customer.lng, customer.lat]);
-      });
-      map.current.fitBounds(bounds, {
-        padding: 50,
-        maxZoom: 12,
-      });
-    } else if (customersWithCoords.length === 1) {
-      const customer = customersWithCoords[0];
-      map.current.flyTo({
-        center: [customer.lng, customer.lat],
-        zoom: 10,
-      });
+    // Fit bounds only once per customer set, not on every re-render
+    if (!hasFitBoundsRef.current) {
+      if (customersWithCoords.length > 1 && !selectedCustomerId) {
+        const bounds = new maplibregl.LngLatBounds();
+        customersWithCoords.forEach((customer) => {
+          bounds.extend([customer.lng, customer.lat]);
+        });
+        map.current.fitBounds(bounds, {
+          padding: 50,
+          maxZoom: 12,
+        });
+        hasFitBoundsRef.current = true;
+      } else if (customersWithCoords.length === 1) {
+        const customer = customersWithCoords[0];
+        map.current.flyTo({
+          center: [customer.lng, customer.lat],
+          zoom: 10,
+        });
+        hasFitBoundsRef.current = true;
+      }
     }
   }, [
-    customers,
     customersWithCoords,
     selectedCustomerId,
     showPopups,
-    onCustomerClick,
-    onPinTap,
     createMarkerElement,
     createPopupContent,
     isLoading,
@@ -335,7 +352,7 @@ export default function CustomerMap({
         }
       }
     }
-  }, [selectedCustomerId, customersWithCoords, showPopups, onPinTap, isLoading]);
+  }, [selectedCustomerId, customersWithCoords, showPopups, isLoading]);
 
   // Error state
   if (mapError) {
