@@ -130,6 +130,7 @@ export default function AdminOCRReview() {
   const [reprocessAllRunning, setReprocessAllRunning] = useState(false);
   const [reprocessStats, setReprocessStats] = useState<{ needsReprocessing: number; total: number } | null>(null);
   const [leftPanelMode, setLeftPanelMode] = useState<'photo' | 'sections'>('photo');
+  const [selectedWordIndices, setSelectedWordIndices] = useState<Set<number>>(new Set());
   const limit = 20;
 
   const currentPhoto = photos[currentIndex] || null;
@@ -234,6 +235,7 @@ export default function AdminOCRReview() {
     if (currentPhoto?.id) {
       fetchWords(currentPhoto.id);
       setSelectedWordIndex(null);
+      setSelectedWordIndices(new Set());
     }
   }, [currentPhoto?.id, fetchWords]);
 
@@ -289,6 +291,28 @@ export default function AdminOCRReview() {
       ));
     } catch (e) {
       console.error('Failed to submit correction:', e);
+    }
+  };
+
+  const handleDeleteWords = async (wordIndices: number[]) => {
+    if (!currentPhoto || wordIndices.length === 0) return;
+    try {
+      const res = await fetch(`/api/admin/ocr/words/${currentPhoto.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wordIndices }),
+      });
+      if (res.ok) {
+        // Remove deleted words from local state
+        setWords(prev => prev.filter(w => !wordIndices.includes(w.word_index)));
+        setSelectedWordIndex(null);
+        setSelectedWordIndices(new Set());
+      } else {
+        const data = await res.json();
+        console.error('Failed to delete words:', data.error);
+      }
+    } catch (e) {
+      console.error('Failed to delete words:', e);
     }
   };
 
@@ -663,6 +687,9 @@ export default function AdminOCRReview() {
                 selectedWordIndex={selectedWordIndex}
                 onWordSelect={handleWordSelect}
                 onCorrection={handleCorrection}
+                onDeleteWords={handleDeleteWords}
+                selectedWordIndices={selectedWordIndices}
+                onSelectedWordIndicesChange={setSelectedWordIndices}
               />
             ) : (
               <div style={s.panelPlaceholder}>No photo selected</div>

@@ -53,6 +53,8 @@ const SECTION_TYPES = [
   { value: 'wine_list', label: 'Wine List', color: '#a855f7' },
   { value: 'sake_by_glass', label: 'Sake (Glass)', color: '#14b8a6' },
   { value: 'sake_by_bottle', label: 'Sake (Bottle)', color: '#0d9488' },
+  { value: 'large_format_wine', label: 'Large Format Wine', color: '#7c3aed' },
+  { value: 'small_format_wine', label: 'Small Format Wine', color: '#c084fc' },
   { value: 'food', label: 'Food', color: '#84cc16' },
   { value: 'other', label: 'Other', color: '#6b7280' },
 ] as const;

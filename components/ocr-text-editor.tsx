@@ -8,7 +8,9 @@
  * - Low confidence words highlighted in red
  * - Click to select and view correction details
  * - Double-click or edit icon to inline-edit any word
- * - Keyboard navigation: Tab between corrected words, Enter to edit, Escape to cancel
+ * - Keyboard navigation: Tab between reviewable words (corrected + low-confidence),
+ *   Enter to edit, Escape to cancel, Delete/Backspace to delete
+ * - Shift+click for multi-select range, Delete key removes range
  */
 
 'use client';
@@ -45,6 +47,9 @@ interface OCRTextEditorProps {
   selectedWordIndex: number | null;
   onWordSelect: (wordIndex: number | null) => void;
   onCorrection: (wordIndex: number, systemText: string, userText: string) => void;
+  onDeleteWords?: (wordIndices: number[]) => void;
+  selectedWordIndices?: Set<number>;
+  onSelectedWordIndicesChange?: (indices: Set<number>) => void;
 }
 
 interface GroupedBlock {
@@ -92,28 +97,47 @@ function groupWords(words: WordData[]): GroupedBlock[] {
 }
 
 export default function OCRTextEditor(props: OCRTextEditorProps) {
-  const { words, selectedWordIndex, onWordSelect, onCorrection } = props;
+  const {
+    words,
+    selectedWordIndex,
+    onWordSelect,
+    onCorrection,
+    onDeleteWords,
+    selectedWordIndices: externalSelectedIndices,
+    onSelectedWordIndicesChange,
+  } = props;
 
   const [editingWordIndex, setEditingWordIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [internalMultiSelect, setInternalMultiSelect] = useState<Set<number>>(new Set());
   const editInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wordRefs = useRef<Map<number, HTMLSpanElement>>(new Map());
 
+  // Use external multi-select state if provided, otherwise internal
+  const selectedWordIndices = externalSelectedIndices ?? internalMultiSelect;
+  const setSelectedWordIndices = onSelectedWordIndicesChange ?? setInternalMultiSelect;
+
   // Memoize grouped structure
   const blocks = useMemo(() => groupWords(words), [words]);
 
-  // Collect corrected word indices for Tab navigation
-  const correctedIndices = useMemo(() => {
+  // Collect reviewable word indices for Tab navigation: corrected OR low confidence
+  const reviewableIndices = useMemo(() => {
     return words
-      .filter((w) => w.was_corrected)
+      .filter((w) => w.was_corrected || w.confidence < 60)
       .map((w) => w.word_index)
       .sort((a, b) => a - b);
+  }, [words]);
+
+  // All word indices sorted for Shift+click range selection
+  const allWordIndices = useMemo(() => {
+    return words.map(w => w.word_index).sort((a, b) => a - b);
   }, [words]);
 
   // Stats
   const totalWords = words.length;
   const totalCorrections = words.filter((w) => w.was_corrected).length;
+  const lowConfCount = words.filter((w) => w.confidence < 60).length;
 
   // Auto-focus edit input when editing begins
   useEffect(() => {
@@ -156,25 +180,72 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     [words, editValue, onCorrection]
   );
 
-  // Keyboard handler for the container (Tab navigation)
+  // Delete selected words
+  const handleDelete = useCallback(() => {
+    if (!onDeleteWords) return;
+    const indicesToDelete: number[] = [];
+
+    if (selectedWordIndices.size > 0) {
+      indicesToDelete.push(...Array.from(selectedWordIndices));
+    } else if (selectedWordIndex !== null) {
+      indicesToDelete.push(selectedWordIndex);
+    }
+
+    if (indicesToDelete.length > 0) {
+      onDeleteWords(indicesToDelete);
+      setSelectedWordIndices(new Set());
+    }
+  }, [onDeleteWords, selectedWordIndices, selectedWordIndex, setSelectedWordIndices]);
+
+  // Handle Shift+click for range selection
+  const handleWordClick = useCallback(
+    (e: React.MouseEvent, wordIndex: number) => {
+      e.stopPropagation();
+
+      if (e.shiftKey && selectedWordIndex !== null) {
+        // Range selection: from current selectedWordIndex to clicked word
+        const startIdx = allWordIndices.indexOf(selectedWordIndex);
+        const endIdx = allWordIndices.indexOf(wordIndex);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const from = Math.min(startIdx, endIdx);
+          const to = Math.max(startIdx, endIdx);
+          const range = new Set<number>();
+          for (let i = from; i <= to; i++) {
+            range.add(allWordIndices[i]);
+          }
+          setSelectedWordIndices(range);
+        }
+        return;
+      }
+
+      // Single click: clear multi-select, select this word
+      setSelectedWordIndices(new Set());
+      onWordSelect(wordIndex);
+    },
+    [selectedWordIndex, allWordIndices, onWordSelect, setSelectedWordIndices]
+  );
+
+  // Keyboard handler for the container (Tab navigation + delete)
   const handleContainerKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (editingWordIndex !== null) return; // Let the input handle its own keys
 
-      if (e.key === 'Tab' && correctedIndices.length > 0) {
+      if (e.key === 'Tab' && reviewableIndices.length > 0) {
         e.preventDefault();
+        // Clear multi-select on tab navigation
+        setSelectedWordIndices(new Set());
         if (selectedWordIndex === null) {
-          onWordSelect(correctedIndices[0]);
-          wordRefs.current.get(correctedIndices[0])?.focus();
+          onWordSelect(reviewableIndices[0]);
+          wordRefs.current.get(reviewableIndices[0])?.focus();
         } else {
-          const currentPos = correctedIndices.indexOf(selectedWordIndex);
+          const currentPos = reviewableIndices.indexOf(selectedWordIndex);
           let nextPos: number;
           if (e.shiftKey) {
-            nextPos = currentPos <= 0 ? correctedIndices.length - 1 : currentPos - 1;
+            nextPos = currentPos <= 0 ? reviewableIndices.length - 1 : currentPos - 1;
           } else {
-            nextPos = currentPos >= correctedIndices.length - 1 ? 0 : currentPos + 1;
+            nextPos = currentPos >= reviewableIndices.length - 1 ? 0 : currentPos + 1;
           }
-          const nextIndex = correctedIndices[nextPos];
+          const nextIndex = reviewableIndices[nextPos];
           onWordSelect(nextIndex);
           wordRefs.current.get(nextIndex)?.focus();
         }
@@ -184,14 +255,22 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
       } else if (e.key === 'Escape') {
         e.preventDefault();
         onWordSelect(null);
+        setSelectedWordIndices(new Set());
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && editingWordIndex === null) {
+        // Delete selected word(s) if not editing
+        if (selectedWordIndices.size > 0 || selectedWordIndex !== null) {
+          e.preventDefault();
+          handleDelete();
+        }
       }
     },
-    [editingWordIndex, correctedIndices, selectedWordIndex, onWordSelect, startEditing]
+    [editingWordIndex, reviewableIndices, selectedWordIndex, onWordSelect, startEditing, selectedWordIndices, setSelectedWordIndices, handleDelete]
   );
 
   // Build the word style
   const getWordStyle = (word: WordData): React.CSSProperties => {
     const isSelected = word.word_index === selectedWordIndex;
+    const isMultiSelected = selectedWordIndices.has(word.word_index);
     const base: React.CSSProperties = {
       display: 'inline',
       padding: '2px 4px',
@@ -208,13 +287,19 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
       fontWeight: isSelected ? 600 : 400,
     };
 
+    // Multi-select highlight (takes precedence over other backgrounds)
+    if (isMultiSelected) {
+      base.backgroundColor = '#bfdbfe'; // blue-200
+      base.borderBottom = `2px solid ${brandColors.primary}`;
+    }
+
     // Low confidence override
     if (word.confidence < 60) {
       base.color = '#dc2626';
     }
 
-    // Correction source background
-    if (word.was_corrected && word.correction_source) {
+    // Correction source background (only if not multi-selected)
+    if (!isMultiSelected && word.was_corrected && word.correction_source) {
       const colorDef = correctionColors[word.correction_source];
       if (colorDef) {
         base.backgroundColor = colorDef.background;
@@ -272,10 +357,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         }}
         tabIndex={-1}
         style={getWordStyle(word)}
-        onClick={(e) => {
-          e.stopPropagation();
-          onWordSelect(word.word_index);
-        }}
+        onClick={(e) => handleWordClick(e, word.word_index)}
         onDoubleClick={(e) => {
           e.stopPropagation();
           startEditing(word.word_index);
@@ -289,11 +371,13 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         title={
           word.was_corrected
             ? `Original: ${word.raw_text} | Corrected: ${word.corrected_text} | Source: ${word.correction_source} | Confidence: ${Math.round(word.confidence)}%`
+            : word.confidence < 60
+            ? `Low confidence: ${Math.round(word.confidence)}% | Text: ${word.raw_text}`
             : undefined
         }
       >
         {word.corrected_text}
-        {/* Edit icon for corrected/selected words */}
+        {/* Edit icon for selected words */}
         {isSelected && (
           <span
             onClick={(e) => {
@@ -306,6 +390,19 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
             &#9998;
           </span>
         )}
+        {/* Delete icon for selected words */}
+        {isSelected && onDeleteWords && (
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete();
+            }}
+            style={styles.deleteIcon}
+            title="Delete word"
+          >
+            &times;
+          </span>
+        )}
       </span>
     );
   };
@@ -313,9 +410,13 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
   // Render the tooltip/popover for the selected word
   const renderTooltip = () => {
     if (selectedWordIndex === null || editingWordIndex !== null) return null;
+    // Show tooltip when multi-selected too
+    if (selectedWordIndices.size > 1) return null;
 
     const word = words.find((w) => w.word_index === selectedWordIndex);
-    if (!word || !word.was_corrected) return null;
+    if (!word) return null;
+    // Show tooltip for corrected words or low-confidence words
+    if (!word.was_corrected && word.confidence >= 60) return null;
 
     const spanEl = wordRefs.current.get(selectedWordIndex);
     if (!spanEl || !containerRef.current) return null;
@@ -347,17 +448,19 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           <span style={styles.tooltipLabel}>Corrected:</span>
           <span style={{ ...styles.tooltipValue, fontWeight: 600 }}>{word.corrected_text}</span>
         </div>
-        <div style={styles.tooltipRow}>
-          <span style={styles.tooltipLabel}>Source:</span>
-          <span
-            style={{
-              ...styles.tooltipBadge,
-              backgroundColor: sourceColor?.background || '#f3f4f6',
-            }}
-          >
-            {sourceColor?.label || word.correction_source || 'Unknown'}
-          </span>
-        </div>
+        {word.was_corrected && (
+          <div style={styles.tooltipRow}>
+            <span style={styles.tooltipLabel}>Source:</span>
+            <span
+              style={{
+                ...styles.tooltipBadge,
+                backgroundColor: sourceColor?.background || '#f3f4f6',
+              }}
+            >
+              {sourceColor?.label || word.correction_source || 'Unknown'}
+            </span>
+          </div>
+        )}
         <div style={styles.tooltipRow}>
           <span style={styles.tooltipLabel}>Confidence:</span>
           <span
@@ -374,6 +477,8 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     );
   };
 
+  const multiSelectCount = selectedWordIndices.size;
+
   return (
     <div
       ref={containerRef}
@@ -383,6 +488,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
       onClick={() => {
         if (editingWordIndex === null) {
           onWordSelect(null);
+          setSelectedWordIndices(new Set());
         }
       }}
     >
@@ -391,6 +497,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         <div style={styles.statsRow}>
           <span style={styles.statText}>
             {totalWords} words, {totalCorrections} correction{totalCorrections !== 1 ? 's' : ''}
+            {lowConfCount > 0 && `, ${lowConfCount} low-conf`}
           </span>
           <div style={styles.legendRow}>
             <span style={{ ...styles.legendItem, backgroundColor: correctionColors.dictionary.background }}>
@@ -408,8 +515,28 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           </div>
         </div>
         <div style={styles.helpText}>
-          Click to select | Double-click to edit | Tab between corrections
+          Click to select | Double-click to edit | Tab between reviewable words | Shift+click to select range
+          {onDeleteWords && ' | Delete/Backspace to remove'}
         </div>
+        {/* Multi-select indicator */}
+        {multiSelectCount > 1 && (
+          <div style={styles.multiSelectBar}>
+            <span style={styles.multiSelectText}>
+              {multiSelectCount} words selected
+            </span>
+            {onDeleteWords && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete();
+                }}
+                style={styles.multiDeleteButton}
+              >
+                Delete selected
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Word content area */}
@@ -479,6 +606,31 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#9ca3af',
     marginTop: '6px',
   },
+  multiSelectBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    marginTop: '8px',
+    padding: '6px 10px',
+    background: '#eff6ff',
+    borderRadius: '6px',
+    border: '1px solid #bfdbfe',
+  },
+  multiSelectText: {
+    fontSize: '12px',
+    fontWeight: 600,
+    color: '#1e40af',
+  },
+  multiDeleteButton: {
+    padding: '3px 10px',
+    borderRadius: '6px',
+    border: '1px solid #fca5a5',
+    background: '#fef2f2',
+    color: '#dc2626',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 600,
+  },
   textArea: {
     padding: '16px',
     position: 'relative' as const,
@@ -503,6 +655,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: brandColors.primary,
     cursor: 'pointer',
     verticalAlign: 'middle',
+  },
+  deleteIcon: {
+    display: 'inline-block',
+    marginLeft: '2px',
+    fontSize: '14px',
+    color: '#dc2626',
+    cursor: 'pointer',
+    verticalAlign: 'middle',
+    fontWeight: '700',
+    lineHeight: 1,
   },
   inlineInput: {
     fontSize: '14px',

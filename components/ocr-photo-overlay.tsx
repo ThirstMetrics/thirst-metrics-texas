@@ -1,8 +1,14 @@
 /**
  * OCR Photo Overlay Component
  * Renders a photo with semi-transparent bounding box rectangles overlaid on
- * corrected words. Supports click selection and hover tooltips. Bbox colors
- * indicate correction source; the selected word gets a bright highlight.
+ * corrected words. Supports click selection, hover tooltips, and zoom/pan.
+ *
+ * Zoom/Pan:
+ * - Mouse wheel zooms in/out (0.25x steps, clamped 1x–5x)
+ * - Click-and-drag pans when zoomed > 1x
+ * - Double-click resets zoom to 1x fit
+ * - Zoom controls bar: [−] [100%] [+] [Fit]
+ * - Touch: pinch-to-zoom support
  */
 
 'use client';
@@ -14,6 +20,10 @@ const brandColors = {
   primary: '#0d7377',
   accent: '#22d3e6',
 };
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 5;
+const ZOOM_STEP = 0.25;
 
 export interface WordData {
   word_index: number;
@@ -139,6 +149,7 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -150,6 +161,29 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
     y: 0,
     word: null,
   });
+
+  // Zoom/pan state
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const didDragRef = useRef(false);
+
+  // Touch zoom state
+  const lastTouchDistRef = useRef<number | null>(null);
+  const lastTouchZoomRef = useRef<number>(1);
+
+  // Clamp pan so the image doesn't go out of view
+  const clampPan = useCallback((px: number, py: number, zoom: number): { x: number; y: number } => {
+    if (!displaySize || zoom <= 1) return { x: 0, y: 0 };
+    const maxPanX = displaySize.width * (zoom - 1);
+    const maxPanY = displaySize.height * (zoom - 1);
+    return {
+      x: Math.max(-maxPanX, Math.min(0, px)),
+      y: Math.max(-maxPanY, Math.min(0, py)),
+    };
+  }, [displaySize]);
 
   // Compute the scale factor from OCR coordinate space to displayed image space
   const getScaleFactor = useCallback((): { scaleX: number; scaleY: number } | null => {
@@ -219,8 +253,166 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
     };
   }, [imageLoaded, measureImage]);
 
+  // ---- Zoom handlers ----
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
+      setZoomLevel(prev => {
+        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, prev + delta));
+        if (next <= 1) {
+          setPanX(0);
+          setPanY(0);
+        } else {
+          // Adjust pan to keep zoom centered on cursor
+          const wrapper = wrapperRef.current;
+          if (wrapper && displaySize) {
+            const rect = wrapper.getBoundingClientRect();
+            const cursorX = e.clientX - rect.left;
+            const cursorY = e.clientY - rect.top;
+            setPanX(px => {
+              const newPx = px - (cursorX / prev) * delta;
+              return clampPan(newPx, 0, next).x;
+            });
+            setPanY(py => {
+              const newPy = py - (cursorY / prev) * delta;
+              return clampPan(0, newPy, next).y;
+            });
+          }
+        }
+        return next;
+      });
+    },
+    [clampPan, displaySize]
+  );
+
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel(prev => Math.min(ZOOM_MAX, prev + ZOOM_STEP));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel(prev => {
+      const next = Math.max(ZOOM_MIN, prev - ZOOM_STEP);
+      if (next <= 1) {
+        setPanX(0);
+        setPanY(0);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    setZoomLevel(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
+
+  // ---- Pan handlers (mouse) ----
+
+  const handlePanMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (zoomLevel <= 1) return;
+      // Only initiate pan on left click
+      if (e.button !== 0) return;
+      panStartRef.current = { x: e.clientX, y: e.clientY, panX, panY };
+      didDragRef.current = false;
+      setIsPanning(true);
+    },
+    [zoomLevel, panX, panY]
+  );
+
+  const handlePanMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isPanning || !panStartRef.current) return;
+      const dx = e.clientX - panStartRef.current.x;
+      const dy = e.clientY - panStartRef.current.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        didDragRef.current = true;
+      }
+      const newPan = clampPan(
+        panStartRef.current.panX + dx,
+        panStartRef.current.panY + dy,
+        zoomLevel
+      );
+      setPanX(newPan.x);
+      setPanY(newPan.y);
+    },
+    [isPanning, zoomLevel, clampPan]
+  );
+
+  const handlePanMouseUp = useCallback(() => {
+    setIsPanning(false);
+    panStartRef.current = null;
+  }, []);
+
+  // ---- Touch handlers (pinch-to-zoom) ----
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastTouchDistRef.current = Math.hypot(dx, dy);
+        lastTouchZoomRef.current = zoomLevel;
+      } else if (e.touches.length === 1 && zoomLevel > 1) {
+        panStartRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+          panX,
+          panY,
+        };
+        didDragRef.current = false;
+        setIsPanning(true);
+      }
+    },
+    [zoomLevel, panX, panY]
+  );
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2 && lastTouchDistRef.current !== null) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const scale = dist / lastTouchDistRef.current;
+        const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, lastTouchZoomRef.current * scale));
+        setZoomLevel(newZoom);
+        if (newZoom <= 1) {
+          setPanX(0);
+          setPanY(0);
+        }
+      } else if (e.touches.length === 1 && isPanning && panStartRef.current) {
+        const tdx = e.touches[0].clientX - panStartRef.current.x;
+        const tdy = e.touches[0].clientY - panStartRef.current.y;
+        if (Math.abs(tdx) > 3 || Math.abs(tdy) > 3) {
+          didDragRef.current = true;
+        }
+        const newPan = clampPan(
+          panStartRef.current.panX + tdx,
+          panStartRef.current.panY + tdy,
+          zoomLevel
+        );
+        setPanX(newPan.x);
+        setPanY(newPan.y);
+      }
+    },
+    [isPanning, zoomLevel, clampPan]
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    lastTouchDistRef.current = null;
+    setIsPanning(false);
+    panStartRef.current = null;
+  }, []);
+
+  // ---- Word click/hover handlers ----
+
   const handleWordClick = useCallback(
     (e: React.MouseEvent, wordIndex: number) => {
+      // If we were dragging, don't treat as a click
+      if (didDragRef.current) return;
       e.stopPropagation();
       onWordSelect(wordIndex);
     },
@@ -228,9 +420,18 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
   );
 
   const handleContainerClick = useCallback(() => {
+    // If we were dragging, don't deselect
+    if (didDragRef.current) return;
     // Clicking outside any word bbox deselects
     onWordSelect(null);
   }, [onWordSelect]);
+
+  const handleDoubleClick = useCallback(() => {
+    // Double-click resets zoom to fit
+    setZoomLevel(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
 
   const handleWordMouseEnter = useCallback(
     (e: React.MouseEvent, word: WordData) => {
@@ -306,81 +507,108 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
     );
   }
 
+  const zoomPercent = `${Math.round(zoomLevel * 100)}%`;
+  const isZoomed = zoomLevel > 1;
+
   return (
     <div
       ref={containerRef}
       style={styles.container}
       onClick={handleContainerClick}
     >
-      {/* The photo */}
-      <div style={styles.imageWrapper}>
-        <img
-          ref={imgRef}
-          src={photoUrl}
-          alt="OCR source"
-          onLoad={handleImageLoad}
-          onError={handleImageError}
-          style={styles.image}
-          draggable={false}
-        />
+      {/* The photo with zoom/pan */}
+      <div
+        ref={wrapperRef}
+        style={{
+          ...styles.imageWrapper,
+          cursor: isPanning ? 'grabbing' : isZoomed ? 'grab' : 'default',
+        }}
+        onWheel={handleWheel}
+        onMouseDown={handlePanMouseDown}
+        onMouseMove={handlePanMouseMove}
+        onMouseUp={handlePanMouseUp}
+        onMouseLeave={handlePanMouseUp}
+        onDoubleClick={handleDoubleClick}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Transform container for zoom+pan — image and overlays are children */}
+        <div
+          style={{
+            transform: `scale(${zoomLevel}) translate(${panX / zoomLevel}px, ${panY / zoomLevel}px)`,
+            transformOrigin: '0 0',
+            transition: isPanning ? 'none' : 'transform 0.15s ease-out',
+          }}
+        >
+          <img
+            ref={imgRef}
+            src={photoUrl}
+            alt="OCR source"
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+            style={styles.image}
+            draggable={false}
+          />
 
-        {/* Overlay layer - only render when we can compute positions */}
-        {scaleFactor && words.length > 0 && displaySize && (
-          <div
-            style={{
-              ...styles.overlayLayer,
-              width: displaySize.width,
-              height: displaySize.height,
-            }}
-          >
-            {words.map((word) => {
-              const isSelected = selectedWordIndex === word.word_index;
-              const overlayStyle = getWordOverlayStyle(word, isSelected);
+          {/* Overlay layer - only render when we can compute positions */}
+          {scaleFactor && words.length > 0 && displaySize && (
+            <div
+              style={{
+                ...styles.overlayLayer,
+                width: displaySize.width,
+                height: displaySize.height,
+              }}
+            >
+              {words.map((word) => {
+                const isSelected = selectedWordIndex === word.word_index;
+                const overlayStyle = getWordOverlayStyle(word, isSelected);
 
-              const left = word.bbox_x0 * scaleFactor.scaleX;
-              const top = word.bbox_y0 * scaleFactor.scaleY;
-              const width = (word.bbox_x1 - word.bbox_x0) * scaleFactor.scaleX;
-              const height = (word.bbox_y1 - word.bbox_y0) * scaleFactor.scaleY;
+                const left = word.bbox_x0 * scaleFactor.scaleX;
+                const top = word.bbox_y0 * scaleFactor.scaleY;
+                const width = (word.bbox_x1 - word.bbox_x0) * scaleFactor.scaleX;
+                const height = (word.bbox_y1 - word.bbox_y0) * scaleFactor.scaleY;
 
-              // Skip rendering words with zero or negative dimensions
-              if (width <= 0 || height <= 0) return null;
+                // Skip rendering words with zero or negative dimensions
+                if (width <= 0 || height <= 0) return null;
 
-              // Non-corrected, non-selected, high-confidence words are fully invisible
-              // but we still render them so they can be clicked / hovered
-              const isInvisible =
-                !word.was_corrected && !isSelected && word.confidence >= 60;
+                // Non-corrected, non-selected, high-confidence words are fully invisible
+                // but we still render them so they can be clicked / hovered
+                const isInvisible =
+                  !word.was_corrected && !isSelected && word.confidence >= 60;
 
-              return (
-                <div
-                  key={word.word_index}
-                  onClick={(e) => handleWordClick(e, word.word_index)}
-                  onMouseEnter={(e) => handleWordMouseEnter(e, word)}
-                  onMouseMove={handleWordMouseMove}
-                  onMouseLeave={handleWordMouseLeave}
-                  style={{
-                    position: 'absolute',
-                    left: `${left}px`,
-                    top: `${top}px`,
-                    width: `${width}px`,
-                    height: `${height}px`,
-                    backgroundColor: overlayStyle.background,
-                    border: overlayStyle.border,
-                    borderRadius: '2px',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.15s, border-color 0.15s',
-                    zIndex: isSelected ? 10 : isInvisible ? 1 : 5,
-                    boxSizing: 'border-box',
-                    // Ensure invisible overlays still capture pointer events
-                    pointerEvents: 'auto',
-                  }}
-                  title="" // Suppress default title tooltip; we use custom
-                />
-              );
-            })}
-          </div>
-        )}
+                return (
+                  <div
+                    key={word.word_index}
+                    onClick={(e) => handleWordClick(e, word.word_index)}
+                    onMouseEnter={(e) => handleWordMouseEnter(e, word)}
+                    onMouseMove={handleWordMouseMove}
+                    onMouseLeave={handleWordMouseLeave}
+                    style={{
+                      position: 'absolute',
+                      left: `${left}px`,
+                      top: `${top}px`,
+                      width: `${width}px`,
+                      height: `${height}px`,
+                      backgroundColor: overlayStyle.background,
+                      border: overlayStyle.border,
+                      borderRadius: '2px',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.15s, border-color 0.15s',
+                      zIndex: isSelected ? 10 : isInvisible ? 1 : 5,
+                      boxSizing: 'border-box',
+                      // Ensure invisible overlays still capture pointer events
+                      pointerEvents: 'auto',
+                    }}
+                    title="" // Suppress default title tooltip; we use custom
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-        {/* Custom tooltip */}
+        {/* Custom tooltip - outside transform so it's not zoomed */}
         {tooltip.visible && tooltip.word && (
           <div
             style={{
@@ -468,6 +696,45 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
           </div>
         </div>
       )}
+
+      {/* Zoom controls bar */}
+      <div style={styles.zoomBar}>
+        <button
+          onClick={handleZoomOut}
+          disabled={zoomLevel <= ZOOM_MIN}
+          style={{
+            ...styles.zoomButton,
+            ...(zoomLevel <= ZOOM_MIN ? styles.zoomButtonDisabled : {}),
+          }}
+          title="Zoom out"
+        >
+          &minus;
+        </button>
+        <span style={styles.zoomLabel}>{zoomPercent}</span>
+        <button
+          onClick={handleZoomIn}
+          disabled={zoomLevel >= ZOOM_MAX}
+          style={{
+            ...styles.zoomButton,
+            ...(zoomLevel >= ZOOM_MAX ? styles.zoomButtonDisabled : {}),
+          }}
+          title="Zoom in"
+        >
+          +
+        </button>
+        <button
+          onClick={handleZoomReset}
+          disabled={zoomLevel === 1}
+          style={{
+            ...styles.zoomButton,
+            ...(zoomLevel === 1 ? styles.zoomButtonDisabled : {}),
+            padding: '4px 10px',
+          }}
+          title="Reset to fit"
+        >
+          Fit
+        </button>
+      </div>
     </div>
   );
 }
@@ -619,5 +886,46 @@ const styles: { [key: string]: React.CSSProperties } = {
   legendLabel: {
     fontSize: '12px',
     color: '#666',
+  },
+  // Zoom controls
+  zoomBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 8px',
+    background: '#f8fafc',
+    borderRadius: '8px',
+    border: '1px solid #e2e8f0',
+    alignSelf: 'flex-start',
+  },
+  zoomButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '28px',
+    height: '28px',
+    borderRadius: '6px',
+    border: `1px solid ${brandColors.primary}`,
+    background: 'white',
+    color: brandColors.primary,
+    cursor: 'pointer',
+    fontSize: '16px',
+    fontWeight: '700',
+    lineHeight: 1,
+    padding: 0,
+    transition: 'all 0.15s',
+  },
+  zoomButtonDisabled: {
+    opacity: 0.35,
+    cursor: 'not-allowed',
+    borderColor: '#cbd5e1',
+    color: '#94a3b8',
+  },
+  zoomLabel: {
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#475569',
+    minWidth: '40px',
+    textAlign: 'center',
   },
 };

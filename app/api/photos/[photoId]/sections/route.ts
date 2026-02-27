@@ -25,6 +25,8 @@ const VALID_SECTION_TYPES = [
   'bottled_beers',
   'spirits_list',
   'wine_list',
+  'large_format_wine',
+  'small_format_wine',
   'sake_by_glass',
   'sake_by_bottle',
   'food',
