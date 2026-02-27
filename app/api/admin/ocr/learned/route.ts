@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { invalidatePipeline } from '@/app/api/ocr/route';
+import { invalidatePipeline } from '@/lib/ocr/pipeline-cache';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

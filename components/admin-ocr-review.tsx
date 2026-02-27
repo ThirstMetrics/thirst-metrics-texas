@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useIsMobile } from '@/lib/hooks/use-media-query';
 import OCRPhotoOverlay from './ocr-photo-overlay';
 import OCRTextEditor from './ocr-text-editor';
+import MenuSectionEditor from './menu-section-editor';
 
 // ============================================
 // Types
@@ -126,6 +127,9 @@ export default function AdminOCRReview() {
   const [learnedLoading, setLearnedLoading] = useState(false);
   const [markingReviewed, setMarkingReviewed] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessAllRunning, setReprocessAllRunning] = useState(false);
+  const [reprocessStats, setReprocessStats] = useState<{ needsReprocessing: number; total: number } | null>(null);
+  const [leftPanelMode, setLeftPanelMode] = useState<'photo' | 'sections'>('photo');
   const limit = 20;
 
   const currentPhoto = photos[currentIndex] || null;
@@ -187,6 +191,16 @@ export default function AdminOCRReview() {
     }
   }, []);
 
+  const fetchReprocessStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/ocr/reprocess');
+      const data = await res.json();
+      setReprocessStats({ needsReprocessing: data.needsReprocessing ?? 0, total: data.total ?? 0 });
+    } catch (e) {
+      /* ignore */
+    }
+  }, []);
+
   const fetchLearnedEntries = useCallback(async () => {
     setLearnedLoading(true);
     try {
@@ -211,6 +225,10 @@ export default function AdminOCRReview() {
   useEffect(() => {
     fetchLearnedData();
   }, [fetchLearnedData]);
+
+  useEffect(() => {
+    fetchReprocessStats();
+  }, [fetchReprocessStats]);
 
   useEffect(() => {
     if (currentPhoto?.id) {
@@ -315,6 +333,28 @@ export default function AdminOCRReview() {
       console.error('Failed to reprocess:', e);
     } finally {
       setReprocessing(false);
+    }
+  };
+
+  const handleReprocessAll = async () => {
+    if (reprocessAllRunning) return;
+    setReprocessAllRunning(true);
+    try {
+      const res = await fetch('/api/admin/ocr/reprocess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      const data = await res.json();
+      console.log('[OCR Review] Reprocess all result:', data);
+      // Refresh data after reprocessing
+      fetchQueue();
+      fetchReprocessStats();
+      if (currentPhoto?.id) fetchWords(currentPhoto.id);
+    } catch (e) {
+      console.error('Failed to reprocess all:', e);
+    } finally {
+      setReprocessAllRunning(false);
     }
   };
 
@@ -498,6 +538,20 @@ export default function AdminOCRReview() {
           >
             {reprocessing ? 'Reprocessing...' : 'Re-process'}
           </button>
+          {reprocessStats && reprocessStats.needsReprocessing > 0 && (
+            <button
+              onClick={handleReprocessAll}
+              disabled={reprocessAllRunning}
+              style={{
+                ...s.reprocessAllButton,
+                ...(reprocessAllRunning ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+              }}
+            >
+              {reprocessAllRunning
+                ? 'Re-processing...'
+                : `Re-process All (${reprocessStats.needsReprocessing})`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -544,21 +598,49 @@ export default function AdminOCRReview() {
           ...(isMobile ? { width: '100%', minHeight: '300px' } : {}),
         }}>
           <div style={s.panelHeader}>
-            <span style={s.panelTitle}>Photo</span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <button
+                onClick={() => setLeftPanelMode('photo')}
+                style={{
+                  ...s.panelModeButton,
+                  ...(leftPanelMode === 'photo' ? s.panelModeButtonActive : {}),
+                }}
+              >
+                Photo
+              </button>
+              <button
+                onClick={() => setLeftPanelMode('sections')}
+                style={{
+                  ...s.panelModeButton,
+                  ...(leftPanelMode === 'sections' ? s.panelModeButtonActive : {}),
+                }}
+              >
+                Sections
+              </button>
+            </div>
             {currentPhoto?.photo_type && (
               <span style={s.photoTypeBadge}>{currentPhoto.photo_type}</span>
             )}
           </div>
           <div style={s.panelBody}>
             {currentPhoto ? (
-              <OCRPhotoOverlay
-                photoUrl={currentPhoto.photo_url}
-                words={words}
-                selectedWordIndex={selectedWordIndex}
-                onWordSelect={handleWordSelect}
-                ocrImageWidth={currentPhoto.ocr_image_width ?? null}
-                ocrImageHeight={currentPhoto.ocr_image_height ?? null}
-              />
+              leftPanelMode === 'sections' ? (
+                <MenuSectionEditor
+                  photoUrl={currentPhoto.photo_url}
+                  photoId={currentPhoto.id}
+                  ocrImageWidth={currentPhoto.ocr_image_width ?? null}
+                  ocrImageHeight={currentPhoto.ocr_image_height ?? null}
+                />
+              ) : (
+                <OCRPhotoOverlay
+                  photoUrl={currentPhoto.photo_url}
+                  words={words}
+                  selectedWordIndex={selectedWordIndex}
+                  onWordSelect={handleWordSelect}
+                  ocrImageWidth={currentPhoto.ocr_image_width ?? null}
+                  ocrImageHeight={currentPhoto.ocr_image_height ?? null}
+                />
+              )
             ) : (
               <div style={s.panelPlaceholder}>No photo selected</div>
             )}
@@ -877,6 +959,33 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     marginLeft: '4px',
     transition: 'all 0.15s',
+  },
+  reprocessAllButton: {
+    padding: '6px 14px',
+    borderRadius: '8px',
+    border: `1px solid #f59e0b`,
+    background: '#fffbeb',
+    color: '#92400e',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+    transition: 'all 0.15s',
+  },
+  panelModeButton: {
+    padding: '4px 12px',
+    borderRadius: '6px',
+    border: '1px solid #e2e8f0',
+    background: 'white',
+    color: '#64748b',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 500,
+    transition: 'all 0.15s',
+  },
+  panelModeButtonActive: {
+    background: BRAND.primary,
+    color: 'white',
+    borderColor: BRAND.primary,
   },
 
   // ---- Pagination ----
