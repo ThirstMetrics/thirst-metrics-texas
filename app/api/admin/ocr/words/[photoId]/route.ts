@@ -137,7 +137,6 @@ export async function DELETE(
       word_index: w.word_index,
       system_text: w.corrected_text || w.raw_text,
       user_text: '[DELETED]',
-      status: 'pending',
       bbox_x0: w.bbox_x0,
       bbox_y0: w.bbox_y0,
       bbox_x1: w.bbox_x1,
