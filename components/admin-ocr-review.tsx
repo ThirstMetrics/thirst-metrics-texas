@@ -556,9 +556,8 @@ export default function AdminOCRReview() {
                 words={words}
                 selectedWordIndex={selectedWordIndex}
                 onWordSelect={handleWordSelect}
-                imageWidth={currentPhoto.ocr_image_width}
-                imageHeight={currentPhoto.ocr_image_height}
-                loading={wordsLoading}
+                ocrImageWidth={currentPhoto.ocr_image_width ?? null}
+                ocrImageHeight={currentPhoto.ocr_image_height ?? null}
               />
             ) : (
               <div style={s.panelPlaceholder}>No photo selected</div>
@@ -582,7 +581,6 @@ export default function AdminOCRReview() {
                 selectedWordIndex={selectedWordIndex}
                 onWordSelect={handleWordSelect}
                 onCorrection={handleCorrection}
-                loading={wordsLoading}
               />
             ) : (
               <div style={s.panelPlaceholder}>No photo selected</div>
