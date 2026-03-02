@@ -298,9 +298,9 @@ export default function AdminOCRReview() {
     if (!currentPhoto || wordIndices.length === 0) return;
     try {
       const res = await fetch(`/api/admin/ocr/words/${currentPhoto.id}`, {
-        method: 'DELETE',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wordIndices }),
+        body: JSON.stringify({ action: 'delete', wordIndices }),
       });
       if (res.ok) {
         // Remove deleted words from local state

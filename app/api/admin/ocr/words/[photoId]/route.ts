@@ -2,8 +2,11 @@
  * Admin OCR Word Data API Route
  * Returns word-level OCR data for a specific photo, including bounding boxes.
  *
- * GET    /api/admin/ocr/words/[photoId]
- * DELETE /api/admin/ocr/words/[photoId]  — delete words by index, save as training data
+ * GET  /api/admin/ocr/words/[photoId]
+ * POST /api/admin/ocr/words/[photoId]  — delete words by index, save as training data
+ *
+ * Note: Uses POST instead of DELETE because the Nginx reverse proxy on Cloudways
+ * strips request bodies from DELETE requests, causing "Unexpected end of JSON input".
  */
 
 import { NextResponse } from 'next/server';
@@ -80,12 +83,12 @@ export async function GET(
 }
 
 /**
- * DELETE /api/admin/ocr/words/[photoId]
+ * POST /api/admin/ocr/words/[photoId]
  * Delete specific words by their indices. Saves deletions as training data
  * in ocr_user_corrections with user_text '[DELETED]'.
- * Body: { wordIndices: number[] }
+ * Body: { action: 'delete', wordIndices: number[] }
  */
-export async function DELETE(
+export async function POST(
   request: Request,
   { params }: { params: { photoId: string } }
 ) {
