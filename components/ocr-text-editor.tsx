@@ -6,10 +6,9 @@
  * - Words grouped by line_index and block_index
  * - Color-coded correction sources (dictionary, learned, user)
  * - Low confidence words highlighted in red
- * - Click to select and view correction details
- * - Double-click or edit icon to inline-edit any word
- * - Keyboard navigation: Tab between reviewable words (corrected + low-confidence),
- *   Enter to edit, Escape to cancel, Delete/Backspace to delete
+ * - Click to select → sticky action bar shows word info + Edit/Delete buttons
+ * - Keyboard: Tab between reviewable words, Enter to edit, Escape to cancel,
+ *   Delete/Backspace to delete
  * - Shift+click for multi-select range, Delete key removes range
  */
 
@@ -110,7 +109,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
   const [editingWordIndex, setEditingWordIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
   const [internalMultiSelect, setInternalMultiSelect] = useState<Set<number>>(new Set());
-  const editInputRef = useRef<HTMLInputElement>(null);
+  const actionBarEditRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wordRefs = useRef<Map<number, HTMLSpanElement>>(new Map());
 
@@ -134,16 +133,22 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     return words.map(w => w.word_index).sort((a, b) => a - b);
   }, [words]);
 
+  // The currently selected word object
+  const selectedWord = useMemo(() => {
+    if (selectedWordIndex === null) return null;
+    return words.find(w => w.word_index === selectedWordIndex) ?? null;
+  }, [words, selectedWordIndex]);
+
   // Stats
   const totalWords = words.length;
   const totalCorrections = words.filter((w) => w.was_corrected).length;
   const lowConfCount = words.filter((w) => w.confidence < 60).length;
 
-  // Auto-focus edit input when editing begins
+  // Auto-focus action bar edit input when editing begins
   useEffect(() => {
-    if (editingWordIndex !== null && editInputRef.current) {
-      editInputRef.current.focus();
-      editInputRef.current.select();
+    if (editingWordIndex !== null && actionBarEditRef.current) {
+      actionBarEditRef.current.focus();
+      actionBarEditRef.current.select();
     }
   }, [editingWordIndex]);
 
@@ -163,6 +168,8 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
   const cancelEditing = useCallback(() => {
     setEditingWordIndex(null);
     setEditValue('');
+    // Re-focus the container so keyboard nav keeps working
+    containerRef.current?.focus();
   }, []);
 
   // Submit edit
@@ -176,6 +183,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
       }
       setEditingWordIndex(null);
       setEditValue('');
+      containerRef.current?.focus();
     },
     [words, editValue, onCorrection]
   );
@@ -228,15 +236,14 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
   // Keyboard handler for the container (Tab navigation + delete)
   const handleContainerKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (editingWordIndex !== null) return; // Let the input handle its own keys
+      if (editingWordIndex !== null) return; // Let the action bar input handle its own keys
 
       if (e.key === 'Tab' && reviewableIndices.length > 0) {
         e.preventDefault();
-        // Clear multi-select on tab navigation
         setSelectedWordIndices(new Set());
         if (selectedWordIndex === null) {
           onWordSelect(reviewableIndices[0]);
-          wordRefs.current.get(reviewableIndices[0])?.focus();
+          wordRefs.current.get(reviewableIndices[0])?.scrollIntoView({ block: 'nearest' });
         } else {
           const currentPos = reviewableIndices.indexOf(selectedWordIndex);
           let nextPos: number;
@@ -247,7 +254,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           }
           const nextIndex = reviewableIndices[nextPos];
           onWordSelect(nextIndex);
-          wordRefs.current.get(nextIndex)?.focus();
+          wordRefs.current.get(nextIndex)?.scrollIntoView({ block: 'nearest' });
         }
       } else if (e.key === 'Enter' && selectedWordIndex !== null) {
         e.preventDefault();
@@ -257,7 +264,6 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         onWordSelect(null);
         setSelectedWordIndices(new Set());
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && editingWordIndex === null) {
-        // Delete selected word(s) if not editing
         if (selectedWordIndices.size > 0 || selectedWordIndex !== null) {
           e.preventDefault();
           handleDelete();
@@ -287,9 +293,9 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
       fontWeight: isSelected ? 600 : 400,
     };
 
-    // Multi-select highlight (takes precedence over other backgrounds)
+    // Multi-select highlight
     if (isMultiSelected) {
-      base.backgroundColor = '#bfdbfe'; // blue-200
+      base.backgroundColor = '#bfdbfe';
       base.borderBottom = `2px solid ${brandColors.primary}`;
     }
 
@@ -309,42 +315,8 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     return base;
   };
 
-  // Render a single word
+  // Render a single word — just a span, no inline icons or tooltips
   const renderWord = (word: WordData) => {
-    const isEditing = editingWordIndex === word.word_index;
-    const isSelected = word.word_index === selectedWordIndex;
-
-    if (isEditing) {
-      return (
-        <span
-          key={word.word_index}
-          style={{
-            display: 'inline-block',
-            position: 'relative',
-          }}
-        >
-          <input
-            ref={editInputRef}
-            type="text"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                submitEdit(word.word_index);
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                cancelEditing();
-              }
-              e.stopPropagation();
-            }}
-            onBlur={() => cancelEditing()}
-            style={styles.inlineInput}
-          />
-        </span>
-      );
-    }
-
     return (
       <span
         key={word.word_index}
@@ -362,122 +334,117 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           e.stopPropagation();
           startEditing(word.word_index);
         }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            startEditing(word.word_index);
-          }
-        }}
-        title={
-          word.was_corrected
-            ? `Original: ${word.raw_text} | Corrected: ${word.corrected_text} | Source: ${word.correction_source} | Confidence: ${Math.round(word.confidence)}%`
-            : word.confidence < 60
-            ? `Low confidence: ${Math.round(word.confidence)}% | Text: ${word.raw_text}`
-            : undefined
-        }
       >
         {word.corrected_text}
-        {/* Edit icon for selected words */}
-        {isSelected && (
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              startEditing(word.word_index);
-            }}
-            style={styles.editIcon}
-            title="Edit word"
-          >
-            &#9998;
-          </span>
-        )}
-        {/* Delete icon for selected words */}
-        {isSelected && onDeleteWords && (
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete();
-            }}
-            style={styles.deleteIcon}
-            title="Delete word"
-          >
-            &times;
-          </span>
-        )}
       </span>
     );
   };
 
-  // Render the tooltip/popover for the selected word
-  const renderTooltip = () => {
-    if (selectedWordIndex === null || editingWordIndex !== null) return null;
-    // Show tooltip when multi-selected too
-    if (selectedWordIndices.size > 1) return null;
+  // ---- Action bar: sticky bar between header and text showing selected word info ----
 
-    const word = words.find((w) => w.word_index === selectedWordIndex);
-    if (!word) return null;
-    // Show tooltip for corrected words or low-confidence words
-    if (!word.was_corrected && word.confidence >= 60) return null;
+  const renderActionBar = () => {
+    const multiCount = selectedWordIndices.size;
 
-    const spanEl = wordRefs.current.get(selectedWordIndex);
-    if (!spanEl || !containerRef.current) return null;
-
-    const containerRect = containerRef.current.getBoundingClientRect();
-    const spanRect = spanEl.getBoundingClientRect();
-
-    const left = spanRect.left - containerRect.left + spanRect.width / 2;
-    const top = spanRect.top - containerRect.top - 8;
-
-    const sourceColor = word.correction_source
-      ? correctionColors[word.correction_source]
-      : null;
-
-    return (
-      <div
-        style={{
-          ...styles.tooltip,
-          left: `${left}px`,
-          top: `${top}px`,
-          transform: 'translate(-50%, -100%)',
-        }}
-      >
-        <div style={styles.tooltipRow}>
-          <span style={styles.tooltipLabel}>Original:</span>
-          <span style={styles.tooltipValue}>{word.raw_text}</span>
-        </div>
-        <div style={styles.tooltipRow}>
-          <span style={styles.tooltipLabel}>Corrected:</span>
-          <span style={{ ...styles.tooltipValue, fontWeight: 600 }}>{word.corrected_text}</span>
-        </div>
-        {word.was_corrected && (
-          <div style={styles.tooltipRow}>
-            <span style={styles.tooltipLabel}>Source:</span>
-            <span
-              style={{
-                ...styles.tooltipBadge,
-                backgroundColor: sourceColor?.background || '#f3f4f6',
-              }}
+    // Multi-select mode
+    if (multiCount > 1) {
+      return (
+        <div style={styles.actionBar} onClick={(e) => e.stopPropagation()}>
+          <span style={styles.actionBarLabel}>{multiCount} words selected</span>
+          <div style={styles.actionBarButtons}>
+            {onDeleteWords && (
+              <button onClick={handleDelete} style={styles.actionDeleteBtn}>
+                Delete {multiCount} words
+              </button>
+            )}
+            <button
+              onClick={() => { setSelectedWordIndices(new Set()); onWordSelect(null); }}
+              style={styles.actionCancelBtn}
             >
-              {sourceColor?.label || word.correction_source || 'Unknown'}
-            </span>
+              Clear
+            </button>
           </div>
-        )}
-        <div style={styles.tooltipRow}>
-          <span style={styles.tooltipLabel}>Confidence:</span>
-          <span
-            style={{
-              ...styles.tooltipValue,
-              color: word.confidence < 60 ? '#dc2626' : word.confidence < 80 ? '#d97706' : '#16a34a',
-            }}
-          >
-            {Math.round(word.confidence)}%
-          </span>
         </div>
-        <div style={styles.tooltipArrow} />
-      </div>
-    );
-  };
+      );
+    }
 
-  const multiSelectCount = selectedWordIndices.size;
+    // Single word selected
+    if (selectedWord && editingWordIndex === null) {
+      const confColor = selectedWord.confidence < 60 ? '#dc2626'
+        : selectedWord.confidence < 80 ? '#d97706' : '#16a34a';
+      const sourceColor = selectedWord.correction_source
+        ? correctionColors[selectedWord.correction_source] : null;
+
+      return (
+        <div style={styles.actionBar} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.actionBarInfo}>
+            <span style={styles.actionBarWord}>{selectedWord.corrected_text}</span>
+            {selectedWord.was_corrected && selectedWord.raw_text !== selectedWord.corrected_text && (
+              <span style={styles.actionBarOriginal}>
+                was: <span style={styles.actionBarOriginalText}>{selectedWord.raw_text}</span>
+              </span>
+            )}
+            <span style={{ ...styles.actionBarConf, color: confColor }}>
+              {Math.round(selectedWord.confidence)}%
+            </span>
+            {sourceColor && (
+              <span style={{ ...styles.actionBarSource, backgroundColor: sourceColor.background }}>
+                {sourceColor.label}
+              </span>
+            )}
+          </div>
+          <div style={styles.actionBarButtons}>
+            <button onClick={() => startEditing(selectedWord.word_index)} style={styles.actionEditBtn}>
+              Edit
+            </button>
+            {onDeleteWords && (
+              <button onClick={handleDelete} style={styles.actionDeleteBtn}>
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Editing mode in action bar
+    if (selectedWord && editingWordIndex !== null) {
+      return (
+        <div style={styles.actionBar} onClick={(e) => e.stopPropagation()}>
+          <div style={styles.actionBarEditRow}>
+            <span style={styles.actionBarEditLabel}>Editing:</span>
+            <input
+              ref={actionBarEditRef}
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  submitEdit(editingWordIndex);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelEditing();
+                }
+                e.stopPropagation();
+              }}
+              style={styles.actionBarInput}
+            />
+            <button
+              onClick={() => submitEdit(editingWordIndex)}
+              style={styles.actionSaveBtn}
+            >
+              Save
+            </button>
+            <button onClick={cancelEditing} style={styles.actionCancelBtn}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div
@@ -515,29 +482,12 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           </div>
         </div>
         <div style={styles.helpText}>
-          Click to select | Double-click to edit | Tab between reviewable words | Shift+click to select range
-          {onDeleteWords && ' | Delete/Backspace to remove'}
+          Click word to select | Tab cycles reviewable | Enter to edit | Shift+click for range | Del to remove
         </div>
-        {/* Multi-select indicator */}
-        {multiSelectCount > 1 && (
-          <div style={styles.multiSelectBar}>
-            <span style={styles.multiSelectText}>
-              {multiSelectCount} words selected
-            </span>
-            {onDeleteWords && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDelete();
-                }}
-                style={styles.multiDeleteButton}
-              >
-                Delete selected
-              </button>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* Sticky action bar — always visible when word(s) selected */}
+      {renderActionBar()}
 
       {/* Word content area */}
       <div style={styles.textArea}>
@@ -555,9 +505,6 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
             ))}
           </div>
         ))}
-
-        {/* Tooltip popover */}
-        {renderTooltip()}
       </div>
     </div>
   );
@@ -570,11 +517,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: '#ffffff',
     outline: 'none',
     overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
   },
   header: {
     padding: '12px 16px',
     borderBottom: '1px solid #e5e7eb',
     backgroundColor: '#f9fafb',
+    flexShrink: 0,
   },
   statsRow: {
     display: 'flex',
@@ -606,36 +556,136 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#9ca3af',
     marginTop: '6px',
   },
-  multiSelectBar: {
+  // ---- Sticky action bar ----
+  actionBar: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
-    marginTop: '8px',
-    padding: '6px 10px',
-    background: '#eff6ff',
-    borderRadius: '6px',
-    border: '1px solid #bfdbfe',
+    justifyContent: 'space-between',
+    gap: '10px',
+    padding: '8px 14px',
+    backgroundColor: '#f0fdfa',
+    borderBottom: `2px solid ${brandColors.primary}`,
+    flexShrink: 0,
+    flexWrap: 'wrap' as const,
+    minHeight: '40px',
   },
-  multiSelectText: {
+  actionBarInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    flexWrap: 'wrap' as const,
+    minWidth: 0,
+  },
+  actionBarWord: {
+    fontFamily: "'Courier New', Consolas, monospace",
+    fontSize: '15px',
+    fontWeight: 700,
+    color: '#0f172a',
+    backgroundColor: '#e0f2fe',
+    padding: '2px 8px',
+    borderRadius: '4px',
+  },
+  actionBarOriginal: {
     fontSize: '12px',
+    color: '#6b7280',
+  },
+  actionBarOriginalText: {
+    fontFamily: "'Courier New', Consolas, monospace",
+    textDecoration: 'line-through',
+    color: '#9ca3af',
+  },
+  actionBarConf: {
+    fontSize: '12px',
+    fontWeight: 700,
+  },
+  actionBarSource: {
+    fontSize: '11px',
+    padding: '1px 8px',
+    borderRadius: '10px',
+    color: '#374151',
+    fontWeight: 500,
+  },
+  actionBarLabel: {
+    fontSize: '13px',
     fontWeight: 600,
     color: '#1e40af',
   },
-  multiDeleteButton: {
-    padding: '3px 10px',
+  actionBarButtons: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    flexShrink: 0,
+  },
+  actionEditBtn: {
+    padding: '5px 14px',
+    borderRadius: '6px',
+    border: `1px solid ${brandColors.primary}`,
+    background: 'white',
+    color: brandColors.primary,
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
+  actionDeleteBtn: {
+    padding: '5px 14px',
     borderRadius: '6px',
     border: '1px solid #fca5a5',
     background: '#fef2f2',
     color: '#dc2626',
     cursor: 'pointer',
-    fontSize: '12px',
+    fontSize: '13px',
     fontWeight: 600,
   },
+  actionSaveBtn: {
+    padding: '5px 14px',
+    borderRadius: '6px',
+    border: 'none',
+    background: brandColors.primary,
+    color: 'white',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
+  },
+  actionCancelBtn: {
+    padding: '5px 14px',
+    borderRadius: '6px',
+    border: '1px solid #d1d5db',
+    background: 'white',
+    color: '#6b7280',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 500,
+  },
+  actionBarEditRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    flexWrap: 'wrap' as const,
+  },
+  actionBarEditLabel: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: brandColors.primary,
+    flexShrink: 0,
+  },
+  actionBarInput: {
+    flex: 1,
+    minWidth: '100px',
+    fontSize: '14px',
+    fontFamily: "'Courier New', Consolas, monospace",
+    padding: '4px 8px',
+    border: `2px solid ${brandColors.primary}`,
+    borderRadius: '6px',
+    outline: 'none',
+    backgroundColor: 'white',
+    color: '#1a1a1a',
+  },
+  // ---- Text area ----
   textArea: {
     padding: '16px',
-    position: 'relative' as const,
     minHeight: '100px',
-    maxHeight: '500px',
+    flex: 1,
     overflowY: 'auto' as const,
   },
   blockBreak: {
@@ -647,83 +697,5 @@ const styles: { [key: string]: React.CSSProperties } = {
   wordSpace: {
     display: 'inline',
     fontSize: '14px',
-  },
-  editIcon: {
-    display: 'inline-block',
-    marginLeft: '3px',
-    fontSize: '12px',
-    color: brandColors.primary,
-    cursor: 'pointer',
-    verticalAlign: 'middle',
-  },
-  deleteIcon: {
-    display: 'inline-block',
-    marginLeft: '2px',
-    fontSize: '14px',
-    color: '#dc2626',
-    cursor: 'pointer',
-    verticalAlign: 'middle',
-    fontWeight: '700',
-    lineHeight: 1,
-  },
-  inlineInput: {
-    fontSize: '14px',
-    fontFamily: "'Courier New', Consolas, monospace",
-    padding: '2px 4px',
-    border: `2px solid ${brandColors.primary}`,
-    borderRadius: '3px',
-    outline: 'none',
-    backgroundColor: brandColors.primaryLight,
-    color: '#1a1a1a',
-    minWidth: '40px',
-    maxWidth: '200px',
-  },
-  // Tooltip styles
-  tooltip: {
-    position: 'absolute' as const,
-    zIndex: 50,
-    backgroundColor: '#ffffff',
-    border: '1px solid #e5e7eb',
-    borderRadius: '8px',
-    padding: '10px 14px',
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-    minWidth: '180px',
-    pointerEvents: 'none' as const,
-  },
-  tooltipRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '12px',
-    marginBottom: '4px',
-    fontSize: '12px',
-  },
-  tooltipLabel: {
-    color: '#6b7280',
-    fontWeight: 500,
-    whiteSpace: 'nowrap' as const,
-  },
-  tooltipValue: {
-    color: '#1f2937',
-    fontFamily: "'Courier New', Consolas, monospace",
-    fontSize: '12px',
-  },
-  tooltipBadge: {
-    fontSize: '11px',
-    padding: '1px 8px',
-    borderRadius: '10px',
-    color: '#374151',
-    fontWeight: 500,
-  },
-  tooltipArrow: {
-    position: 'absolute' as const,
-    bottom: '-6px',
-    left: '50%',
-    transform: 'translateX(-50%) rotate(45deg)',
-    width: '10px',
-    height: '10px',
-    backgroundColor: '#ffffff',
-    borderRight: '1px solid #e5e7eb',
-    borderBottom: '1px solid #e5e7eb',
   },
 };
