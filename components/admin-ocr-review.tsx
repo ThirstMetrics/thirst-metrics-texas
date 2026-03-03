@@ -304,9 +304,8 @@ export default function AdminOCRReview() {
       });
       if (res.ok) {
         // Remove deleted words from local state
+        // Selection is managed by the text editor (advances to next reviewable word)
         setWords(prev => prev.filter(w => !wordIndices.includes(w.word_index)));
-        setSelectedWordIndex(null);
-        setSelectedWordIndices(new Set());
       } else {
         const data = await res.json();
         console.error('Failed to delete words:', data.error);

@@ -188,7 +188,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     [words, editValue, onCorrection]
   );
 
-  // Delete selected words
+  // Delete selected words, then advance to the next reviewable word
   const handleDelete = useCallback(() => {
     if (!onDeleteWords) return;
     const indicesToDelete: number[] = [];
@@ -199,11 +199,42 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
       indicesToDelete.push(selectedWordIndex);
     }
 
-    if (indicesToDelete.length > 0) {
-      onDeleteWords(indicesToDelete);
-      setSelectedWordIndices(new Set());
+    if (indicesToDelete.length === 0) return;
+
+    // Find the next reviewable word (not in the set being deleted)
+    const deleteSet = new Set(indicesToDelete);
+    const currentPos = selectedWordIndex !== null
+      ? reviewableIndices.indexOf(selectedWordIndex) : -1;
+
+    let nextIndex: number | null = null;
+    // Search forward from current position
+    for (let i = currentPos + 1; i < reviewableIndices.length; i++) {
+      if (!deleteSet.has(reviewableIndices[i])) {
+        nextIndex = reviewableIndices[i];
+        break;
+      }
     }
-  }, [onDeleteWords, selectedWordIndices, selectedWordIndex, setSelectedWordIndices]);
+    // If nothing forward, search from the beginning
+    if (nextIndex === null) {
+      for (let i = 0; i < currentPos; i++) {
+        if (!deleteSet.has(reviewableIndices[i])) {
+          nextIndex = reviewableIndices[i];
+          break;
+        }
+      }
+    }
+
+    onDeleteWords(indicesToDelete);
+    setSelectedWordIndices(new Set());
+    onWordSelect(nextIndex);
+
+    // Scroll to the next word after React re-renders
+    if (nextIndex !== null) {
+      setTimeout(() => {
+        wordRefs.current.get(nextIndex!)?.scrollIntoView({ block: 'nearest' });
+      }, 50);
+    }
+  }, [onDeleteWords, selectedWordIndices, selectedWordIndex, setSelectedWordIndices, reviewableIndices, onWordSelect]);
 
   // Handle Shift+click for range selection
   const handleWordClick = useCallback(
