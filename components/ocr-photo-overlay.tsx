@@ -64,37 +64,11 @@ function getWordOverlayStyle(
   word: WordData,
   isSelected: boolean
 ): { background: string; border: string } {
-  // Selected word always gets the bright primary highlight
+  // Selected word: light accent border, same thickness as low-conf (1px)
   if (isSelected) {
-    // Determine base color from correction source, but bump opacity
-    if (word.was_corrected) {
-      switch (word.correction_source) {
-        case 'dictionary':
-          return {
-            background: 'rgba(255, 200, 0, 0.45)',
-            border: `2px solid ${brandColors.primary}`,
-          };
-        case 'learned':
-          return {
-            background: 'rgba(34, 211, 230, 0.45)',
-            border: `2px solid ${brandColors.primary}`,
-          };
-        case 'user':
-          return {
-            background: 'rgba(34, 197, 94, 0.45)',
-            border: `2px solid ${brandColors.primary}`,
-          };
-        default:
-          return {
-            background: 'rgba(13, 115, 119, 0.3)',
-            border: `2px solid ${brandColors.primary}`,
-          };
-      }
-    }
-    // Non-corrected but selected
     return {
-      background: 'rgba(13, 115, 119, 0.2)',
-      border: `2px solid ${brandColors.primary}`,
+      background: 'rgba(34, 211, 230, 0.15)',
+      border: `1px solid ${brandColors.accent}`,
     };
   }
 
@@ -601,13 +575,23 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
                 const isSelected = selectedWordIndex === word.word_index;
                 const overlayStyle = getWordOverlayStyle(word, isSelected);
 
-                const left = word.bbox_x0 * scaleFactor.scaleX;
-                const top = word.bbox_y0 * scaleFactor.scaleY;
-                const width = (word.bbox_x1 - word.bbox_x0) * scaleFactor.scaleX;
-                const height = (word.bbox_y1 - word.bbox_y0) * scaleFactor.scaleY;
+                let left = word.bbox_x0 * scaleFactor.scaleX;
+                let top = word.bbox_y0 * scaleFactor.scaleY;
+                let width = (word.bbox_x1 - word.bbox_x0) * scaleFactor.scaleX;
+                let height = (word.bbox_y1 - word.bbox_y0) * scaleFactor.scaleY;
 
                 // Skip rendering words with zero or negative dimensions
                 if (width <= 0 || height <= 0) return null;
+
+                // Expand selected box by 20% so it doesn't cover the text
+                if (isSelected) {
+                  const expandW = width * 0.1;
+                  const expandH = height * 0.1;
+                  left -= expandW;
+                  top -= expandH;
+                  width += expandW * 2;
+                  height += expandH * 2;
+                }
 
                 // Non-corrected, non-selected, high-confidence words are fully invisible
                 // but we still render them so they can be clicked / hovered
