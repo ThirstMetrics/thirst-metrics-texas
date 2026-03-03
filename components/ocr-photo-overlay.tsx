@@ -152,6 +152,18 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
   const lastTouchDistRef = useRef<number | null>(null);
   const lastTouchZoomRef = useRef<number>(1);
 
+  // Reset all state when the photo changes (switching to next photo in queue)
+  useEffect(() => {
+    setImageLoaded(false);
+    setImageError(false);
+    setDisplaySize(null);
+    setNaturalSize(null);
+    setZoomLevel(1);
+    setPanX(0);
+    setPanY(0);
+    setTooltip({ visible: false, x: 0, y: 0, word: null });
+  }, [photoUrl]);
+
   // Clamp pan so the image doesn't go out of view
   const clampPan = useCallback((px: number, py: number, zoom: number): { x: number; y: number } => {
     if (!displaySize || zoom <= 1) return { x: 0, y: 0 };

@@ -116,6 +116,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
   const actionBarEditRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wordRefs = useRef<Map<number, HTMLSpanElement>>(new Map());
+  const typeToEditRef = useRef(false);
 
   // Use external multi-select state if provided, otherwise internal
   const selectedWordIndices = externalSelectedIndices ?? internalMultiSelect;
@@ -153,7 +154,14 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
   useEffect(() => {
     if (editingWordIndex !== null && actionBarEditRef.current) {
       actionBarEditRef.current.focus();
-      actionBarEditRef.current.select();
+      if (typeToEditRef.current) {
+        // Type-to-edit: place cursor at end, don't select all
+        const len = actionBarEditRef.current.value.length;
+        actionBarEditRef.current.setSelectionRange(len, len);
+        typeToEditRef.current = false;
+      } else {
+        actionBarEditRef.current.select();
+      }
     }
   }, [editingWordIndex]);
 
@@ -352,6 +360,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         e.preventDefault();
         const word = words.find(w => w.word_index === selectedWordIndex);
         if (word) {
+          typeToEditRef.current = true;
           setEditingWordIndex(selectedWordIndex);
           setEditValue(e.key);
           onWordSelect(selectedWordIndex);
@@ -514,10 +523,36 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === 'Tab') {
                   e.preventDefault();
-                  submitEdit(editingWordIndex);
-                  // Tab advances to next reviewable word after saving
-                  if (e.key === 'Tab') {
-                    setTimeout(() => advanceReviewable(e.shiftKey), 0);
+                  e.stopPropagation();
+                  // Save the edit
+                  const word = words.find(w => w.word_index === editingWordIndex);
+                  if (word) {
+                    const trimmed = editValue.trim();
+                    if (trimmed && trimmed !== word.corrected_text) {
+                      onCorrection(editingWordIndex!, word.corrected_text, trimmed);
+                    }
+                  }
+                  setEditingWordIndex(null);
+                  setEditValue('');
+                  // Advance to next reviewable word
+                  const currentPos = reviewableIndices.indexOf(editingWordIndex!);
+                  const reverse = e.shiftKey;
+                  let nextPos: number;
+                  if (reverse) {
+                    nextPos = currentPos <= 0 ? reviewableIndices.length - 1 : currentPos - 1;
+                  } else {
+                    nextPos = currentPos >= reviewableIndices.length - 1 ? 0 : currentPos + 1;
+                  }
+                  const nextIdx = reviewableIndices[nextPos];
+                  if (nextIdx !== undefined) {
+                    onWordSelect(nextIdx);
+                    setTimeout(() => {
+                      wordRefs.current.get(nextIdx)?.scrollIntoView({ block: 'nearest' });
+                      containerRef.current?.focus();
+                    }, 0);
+                  } else {
+                    onWordSelect(null);
+                    containerRef.current?.focus();
                   }
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
@@ -580,7 +615,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           </div>
         </div>
         <div style={styles.helpText}>
-          Tab cycles reviewable | Confirm / Edit / Delete | Enter to edit | Shift+click for range
+          Tab cycles reviewable | Enter/Tab saves + advances | = zoom | Type to edit | Shift+click range
         </div>
       </div>
 
