@@ -722,6 +722,7 @@ export default function AdminOCRReview() {
                 onWordDoubleClick={(idx) => { zoomSeqRef.current++; setZoomToWord({ index: idx, seq: zoomSeqRef.current }); }}
                 selectedWordIndices={selectedWordIndices}
                 onSelectedWordIndicesChange={setSelectedWordIndices}
+                onAllReviewed={handleMarkReviewed}
               />
             ) : (
               <div style={s.panelPlaceholder}>No photo selected</div>

@@ -51,6 +51,7 @@ interface OCRTextEditorProps {
   onWordDoubleClick?: (wordIndex: number) => void;
   selectedWordIndices?: Set<number>;
   onSelectedWordIndicesChange?: (indices: Set<number>) => void;
+  onAllReviewed?: () => void;
 }
 
 interface GroupedBlock {
@@ -108,6 +109,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     onWordDoubleClick,
     selectedWordIndices: externalSelectedIndices,
     onSelectedWordIndicesChange,
+    onAllReviewed,
   } = props;
 
   const [editingWordIndex, setEditingWordIndex] = useState<number | null>(null);
@@ -239,47 +241,38 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
 
     onDeleteWords(indicesToDelete);
     setSelectedWordIndices(new Set());
-    onWordSelect(nextIndex);
 
-    // Scroll to the next word after React re-renders
     if (nextIndex !== null) {
+      onWordSelect(nextIndex);
       setTimeout(() => {
         wordRefs.current.get(nextIndex!)?.scrollIntoView({ block: 'nearest' });
       }, 50);
+    } else {
+      // No more reviewable words — auto-mark reviewed and advance
+      onWordSelect(null);
+      onAllReviewed?.();
     }
-  }, [onDeleteWords, selectedWordIndices, selectedWordIndex, setSelectedWordIndices, reviewableIndices, onWordSelect]);
+  }, [onDeleteWords, selectedWordIndices, selectedWordIndex, setSelectedWordIndices, reviewableIndices, onWordSelect, onAllReviewed]);
 
   // Confirm a word as correct, then advance to next reviewable word
   const handleConfirm = useCallback(() => {
     if (!onConfirmWord || selectedWordIndex === null) return;
 
-    // Find next reviewable word (excluding the one being confirmed)
-    const currentPos = reviewableIndices.indexOf(selectedWordIndex);
-    let nextIndex: number | null = null;
-    for (let i = currentPos + 1; i < reviewableIndices.length; i++) {
-      if (reviewableIndices[i] !== selectedWordIndex) {
-        nextIndex = reviewableIndices[i];
-        break;
-      }
-    }
-    if (nextIndex === null) {
-      for (let i = 0; i < currentPos; i++) {
-        if (reviewableIndices[i] !== selectedWordIndex) {
-          nextIndex = reviewableIndices[i];
-          break;
-        }
-      }
-    }
-
+    const remaining = reviewableIndices.filter(i => i !== selectedWordIndex);
     onConfirmWord(selectedWordIndex);
-    onWordSelect(nextIndex);
 
-    if (nextIndex !== null) {
+    if (remaining.length === 0) {
+      // Last reviewable word — auto-mark reviewed and advance
+      onWordSelect(null);
+      onAllReviewed?.();
+    } else {
+      const nextIndex = remaining.find(i => i > selectedWordIndex) ?? remaining[0];
+      onWordSelect(nextIndex);
       setTimeout(() => {
-        wordRefs.current.get(nextIndex!)?.scrollIntoView({ block: 'nearest' });
+        wordRefs.current.get(nextIndex)?.scrollIntoView({ block: 'nearest' });
       }, 50);
     }
-  }, [onConfirmWord, selectedWordIndex, reviewableIndices, onWordSelect]);
+  }, [onConfirmWord, selectedWordIndex, reviewableIndices, onWordSelect, onAllReviewed]);
 
   // Handle Shift+click for range selection
   const handleWordClick = useCallback(
@@ -341,7 +334,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         advanceReviewable(e.shiftKey);
       } else if (e.key === 'Enter' && selectedWordIndex !== null) {
         e.preventDefault();
-        startEditing(selectedWordIndex);
+        handleConfirm();
       } else if (e.key === 'Escape') {
         e.preventDefault();
         onWordSelect(null);
@@ -367,7 +360,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         }
       }
     },
-    [editingWordIndex, reviewableIndices, selectedWordIndex, onWordSelect, startEditing, selectedWordIndices, setSelectedWordIndices, handleDelete, advanceReviewable, onWordDoubleClick, words]
+    [editingWordIndex, reviewableIndices, selectedWordIndex, onWordSelect, handleConfirm, selectedWordIndices, setSelectedWordIndices, handleDelete, advanceReviewable, onWordDoubleClick, words]
   );
 
   // Build the word style
@@ -534,25 +527,25 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
                   }
                   setEditingWordIndex(null);
                   setEditValue('');
-                  // Advance to next reviewable word
-                  const currentPos = reviewableIndices.indexOf(editingWordIndex!);
-                  const reverse = e.shiftKey;
-                  let nextPos: number;
-                  if (reverse) {
-                    nextPos = currentPos <= 0 ? reviewableIndices.length - 1 : currentPos - 1;
+                  // Advance to next reviewable word (exclude the one just edited)
+                  const remaining = reviewableIndices.filter(i => i !== editingWordIndex);
+                  if (remaining.length === 0) {
+                    // Last reviewable word — auto-mark reviewed and advance
+                    onWordSelect(null);
+                    containerRef.current?.focus();
+                    onAllReviewed?.();
                   } else {
-                    nextPos = currentPos >= reviewableIndices.length - 1 ? 0 : currentPos + 1;
-                  }
-                  const nextIdx = reviewableIndices[nextPos];
-                  if (nextIdx !== undefined) {
+                    let nextIdx: number;
+                    if (e.shiftKey) {
+                      nextIdx = [...remaining].reverse().find(i => i < editingWordIndex!) ?? remaining[remaining.length - 1];
+                    } else {
+                      nextIdx = remaining.find(i => i > editingWordIndex!) ?? remaining[0];
+                    }
                     onWordSelect(nextIdx);
                     setTimeout(() => {
                       wordRefs.current.get(nextIdx)?.scrollIntoView({ block: 'nearest' });
                       containerRef.current?.focus();
                     }, 0);
-                  } else {
-                    onWordSelect(null);
-                    containerRef.current?.focus();
                   }
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
