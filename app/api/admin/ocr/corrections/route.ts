@@ -53,7 +53,6 @@ export async function POST(request: Request) {
       word_index: wordIndex,
       system_text: systemText,
       user_text: userText,
-      status: 'pending',
     };
 
     // Include bounding box if provided
