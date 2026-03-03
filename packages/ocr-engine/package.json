@@ -1,0 +1,23 @@
+{
+  "name": "@thirst-metrics/ocr-engine",
+  "version": "1.0.0",
+  "description": "Standalone OCR engine with beverage dictionary, word-level bounding boxes, and spell correction",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"No tests yet\""
+  },
+  "peerDependencies": {
+    "tesseract.js": "^5.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.14.0",
+    "tesseract.js": "^5.1.0"
+  },
+  "files": [
+    "src/"
+  ],
+  "license": "UNLICENSED"
+}

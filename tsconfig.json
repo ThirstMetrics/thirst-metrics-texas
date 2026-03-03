@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@thirst-metrics/ocr-engine": ["./packages/ocr-engine/src/index.ts"],
+      "@thirst-metrics/ocr-engine/*": ["./packages/ocr-engine/src/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
