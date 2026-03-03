@@ -294,6 +294,33 @@ export default function AdminOCRReview() {
     }
   };
 
+  const handleConfirmWord = async (wordIndex: number) => {
+    if (!currentPhoto) return;
+    const word = words.find(w => w.word_index === wordIndex);
+    if (!word) return;
+    try {
+      await fetch('/api/admin/ocr/corrections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activityPhotoId: currentPhoto.id,
+          wordIndex,
+          systemText: word.corrected_text,
+          userText: word.corrected_text,
+          bbox: { x0: word.bbox_x0, y0: word.bbox_y0, x1: word.bbox_x1, y1: word.bbox_y1 },
+        }),
+      });
+      // Mark as user-reviewed locally so it drops out of the reviewable tab cycle
+      setWords(prev => prev.map(w =>
+        w.word_index === wordIndex
+          ? { ...w, was_corrected: true, correction_source: 'user' }
+          : w
+      ));
+    } catch (e) {
+      console.error('Failed to confirm word:', e);
+    }
+  };
+
   const handleDeleteWords = async (wordIndices: number[]) => {
     if (!currentPhoto || wordIndices.length === 0) return;
     try {
@@ -686,6 +713,7 @@ export default function AdminOCRReview() {
                 selectedWordIndex={selectedWordIndex}
                 onWordSelect={handleWordSelect}
                 onCorrection={handleCorrection}
+                onConfirmWord={handleConfirmWord}
                 onDeleteWords={handleDeleteWords}
                 selectedWordIndices={selectedWordIndices}
                 onSelectedWordIndicesChange={setSelectedWordIndices}

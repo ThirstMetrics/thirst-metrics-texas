@@ -46,6 +46,7 @@ interface OCRTextEditorProps {
   selectedWordIndex: number | null;
   onWordSelect: (wordIndex: number | null) => void;
   onCorrection: (wordIndex: number, systemText: string, userText: string) => void;
+  onConfirmWord?: (wordIndex: number) => void;
   onDeleteWords?: (wordIndices: number[]) => void;
   selectedWordIndices?: Set<number>;
   onSelectedWordIndicesChange?: (indices: Set<number>) => void;
@@ -101,6 +102,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     selectedWordIndex,
     onWordSelect,
     onCorrection,
+    onConfirmWord,
     onDeleteWords,
     selectedWordIndices: externalSelectedIndices,
     onSelectedWordIndicesChange,
@@ -120,10 +122,11 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
   // Memoize grouped structure
   const blocks = useMemo(() => groupWords(words), [words]);
 
-  // Collect reviewable word indices for Tab navigation: corrected OR low confidence
+  // Collect reviewable word indices for Tab navigation:
+  // corrected OR low confidence, but NOT already user-reviewed
   const reviewableIndices = useMemo(() => {
     return words
-      .filter((w) => w.was_corrected || w.confidence < 60)
+      .filter((w) => (w.was_corrected || w.confidence < 60) && w.correction_source !== 'user')
       .map((w) => w.word_index)
       .sort((a, b) => a - b);
   }, [words]);
@@ -235,6 +238,38 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
       }, 50);
     }
   }, [onDeleteWords, selectedWordIndices, selectedWordIndex, setSelectedWordIndices, reviewableIndices, onWordSelect]);
+
+  // Confirm a word as correct, then advance to next reviewable word
+  const handleConfirm = useCallback(() => {
+    if (!onConfirmWord || selectedWordIndex === null) return;
+
+    // Find next reviewable word (excluding the one being confirmed)
+    const currentPos = reviewableIndices.indexOf(selectedWordIndex);
+    let nextIndex: number | null = null;
+    for (let i = currentPos + 1; i < reviewableIndices.length; i++) {
+      if (reviewableIndices[i] !== selectedWordIndex) {
+        nextIndex = reviewableIndices[i];
+        break;
+      }
+    }
+    if (nextIndex === null) {
+      for (let i = 0; i < currentPos; i++) {
+        if (reviewableIndices[i] !== selectedWordIndex) {
+          nextIndex = reviewableIndices[i];
+          break;
+        }
+      }
+    }
+
+    onConfirmWord(selectedWordIndex);
+    onWordSelect(nextIndex);
+
+    if (nextIndex !== null) {
+      setTimeout(() => {
+        wordRefs.current.get(nextIndex!)?.scrollIntoView({ block: 'nearest' });
+      }, 50);
+    }
+  }, [onConfirmWord, selectedWordIndex, reviewableIndices, onWordSelect]);
 
   // Handle Shift+click for range selection
   const handleWordClick = useCallback(
@@ -424,6 +459,11 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
             )}
           </div>
           <div style={styles.actionBarButtons}>
+            {onConfirmWord && (
+              <button onClick={handleConfirm} style={styles.actionConfirmBtn}>
+                Confirm
+              </button>
+            )}
             <button onClick={() => startEditing(selectedWord.word_index)} style={styles.actionEditBtn}>
               Edit
             </button>
@@ -513,7 +553,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           </div>
         </div>
         <div style={styles.helpText}>
-          Click word to select | Tab cycles reviewable | Enter to edit | Shift+click for range | Del to remove
+          Tab cycles reviewable | Confirm / Edit / Delete | Enter to edit | Shift+click for range
         </div>
       </div>
 
@@ -646,6 +686,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: 'center',
     gap: '6px',
     flexShrink: 0,
+  },
+  actionConfirmBtn: {
+    padding: '5px 14px',
+    borderRadius: '6px',
+    border: '1px solid #86efac',
+    background: '#f0fdf4',
+    color: '#166534',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: 600,
   },
   actionEditBtn: {
     padding: '5px 14px',
