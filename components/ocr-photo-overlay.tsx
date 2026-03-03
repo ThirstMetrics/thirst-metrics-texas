@@ -45,6 +45,8 @@ interface OCRPhotoOverlayProps {
   ocrImageWidth: number | null;
   ocrImageHeight: number | null;
   onWordSelect: (wordIndex: number | null) => void;
+  zoomToWordIndex?: number | null;
+  zoomToSeq?: number;
 }
 
 interface TooltipState {
@@ -145,6 +147,8 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
     ocrImageWidth,
     ocrImageHeight,
     onWordSelect,
+    zoomToWordIndex,
+    zoomToSeq,
   } = props;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -252,6 +256,39 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
       observer.disconnect();
     };
   }, [imageLoaded, measureImage]);
+
+  // ---- Zoom to word when requested ----
+  useEffect(() => {
+    if (zoomToWordIndex === null || zoomToWordIndex === undefined) return;
+    if (!displaySize) return;
+
+    const word = words.find(w => w.word_index === zoomToWordIndex);
+    if (!word) return;
+
+    const sf = getScaleFactor();
+    if (!sf) return;
+
+    // Compute word center in display coordinates
+    const wordCenterX = ((word.bbox_x0 + word.bbox_x1) / 2) * sf.scaleX;
+    const wordCenterY = ((word.bbox_y0 + word.bbox_y1) / 2) * sf.scaleY;
+
+    // Zoom to 3x
+    const targetZoom = 3;
+
+    // Pan so the word center is in the middle of the wrapper
+    const wrapperEl = wrapperRef.current;
+    const wrapperW = wrapperEl?.clientWidth ?? displaySize.width;
+    const wrapperH = wrapperEl?.clientHeight ?? displaySize.height;
+
+    const rawPanX = (wrapperW / 2) - (wordCenterX * targetZoom);
+    const rawPanY = (wrapperH / 2) - (wordCenterY * targetZoom);
+    const clamped = clampPan(rawPanX, rawPanY, targetZoom);
+
+    setZoomLevel(targetZoom);
+    setPanX(clamped.x);
+    setPanY(clamped.y);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomToWordIndex, zoomToSeq, displaySize]);
 
   // ---- Zoom handlers ----
 

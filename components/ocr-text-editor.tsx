@@ -48,6 +48,7 @@ interface OCRTextEditorProps {
   onCorrection: (wordIndex: number, systemText: string, userText: string) => void;
   onConfirmWord?: (wordIndex: number) => void;
   onDeleteWords?: (wordIndices: number[]) => void;
+  onWordDoubleClick?: (wordIndex: number) => void;
   selectedWordIndices?: Set<number>;
   onSelectedWordIndicesChange?: (indices: Set<number>) => void;
 }
@@ -104,6 +105,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     onCorrection,
     onConfirmWord,
     onDeleteWords,
+    onWordDoubleClick,
     selectedWordIndices: externalSelectedIndices,
     onSelectedWordIndicesChange,
   } = props;
@@ -399,6 +401,7 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
         onDoubleClick={(e) => {
           e.stopPropagation();
           startEditing(word.word_index);
+          onWordDoubleClick?.(word.word_index);
         }}
       >
         {word.corrected_text}

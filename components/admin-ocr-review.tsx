@@ -11,7 +11,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useIsMobile } from '@/lib/hooks/use-media-query';
 import OCRPhotoOverlay from './ocr-photo-overlay';
 import OCRTextEditor from './ocr-text-editor';
@@ -131,6 +131,8 @@ export default function AdminOCRReview() {
   const [reprocessStats, setReprocessStats] = useState<{ needsReprocessing: number; total: number } | null>(null);
   const [leftPanelMode, setLeftPanelMode] = useState<'photo' | 'sections'>('photo');
   const [selectedWordIndices, setSelectedWordIndices] = useState<Set<number>>(new Set());
+  const [zoomToWord, setZoomToWord] = useState<{ index: number; seq: number } | null>(null);
+  const zoomSeqRef = useRef(0);
   const limit = 20;
 
   const currentPhoto = photos[currentIndex] || null;
@@ -689,6 +691,8 @@ export default function AdminOCRReview() {
                   onWordSelect={handleWordSelect}
                   ocrImageWidth={currentPhoto.ocr_image_width ?? null}
                   ocrImageHeight={currentPhoto.ocr_image_height ?? null}
+                  zoomToWordIndex={zoomToWord?.index ?? null}
+                  zoomToSeq={zoomToWord?.seq ?? 0}
                 />
               )
             ) : (
@@ -715,6 +719,7 @@ export default function AdminOCRReview() {
                 onCorrection={handleCorrection}
                 onConfirmWord={handleConfirmWord}
                 onDeleteWords={handleDeleteWords}
+                onWordDoubleClick={(idx) => { zoomSeqRef.current++; setZoomToWord({ index: idx, seq: zoomSeqRef.current }); }}
                 selectedWordIndices={selectedWordIndices}
                 onSelectedWordIndicesChange={setSelectedWordIndices}
               />
