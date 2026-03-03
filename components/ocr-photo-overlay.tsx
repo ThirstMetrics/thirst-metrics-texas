@@ -239,12 +239,16 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
     const word = words.find(w => w.word_index === zoomToWordIndex);
     if (!word) return;
 
-    const sf = getScaleFactor();
-    if (!sf) return;
+    // Compute scale factor inline to avoid stale closure
+    const sourceWidth = ocrImageWidth ?? naturalSize?.width ?? null;
+    const sourceHeight = ocrImageHeight ?? naturalSize?.height ?? null;
+    if (!sourceWidth || !sourceHeight) return;
+    const scaleX = displaySize.width / sourceWidth;
+    const scaleY = displaySize.height / sourceHeight;
 
     // Compute word center in display coordinates
-    const wordCenterX = ((word.bbox_x0 + word.bbox_x1) / 2) * sf.scaleX;
-    const wordCenterY = ((word.bbox_y0 + word.bbox_y1) / 2) * sf.scaleY;
+    const wordCenterX = ((word.bbox_x0 + word.bbox_x1) / 2) * scaleX;
+    const wordCenterY = ((word.bbox_y0 + word.bbox_y1) / 2) * scaleY;
 
     // Zoom to 3x
     const targetZoom = 3;
@@ -256,47 +260,19 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
 
     const rawPanX = (wrapperW / 2) - (wordCenterX * targetZoom);
     const rawPanY = (wrapperH / 2) - (wordCenterY * targetZoom);
-    const clamped = clampPan(rawPanX, rawPanY, targetZoom);
+
+    // Clamp inline
+    const maxPanX = displaySize.width * (targetZoom - 1);
+    const maxPanY = displaySize.height * (targetZoom - 1);
+    const clampedX = Math.max(-maxPanX, Math.min(0, rawPanX));
+    const clampedY = Math.max(-maxPanY, Math.min(0, rawPanY));
 
     setZoomLevel(targetZoom);
-    setPanX(clamped.x);
-    setPanY(clamped.y);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomToWordIndex, zoomToSeq, displaySize]);
+    setPanX(clampedX);
+    setPanY(clampedY);
+  }, [zoomToWordIndex, zoomToSeq, displaySize, words, ocrImageWidth, ocrImageHeight, naturalSize]);
 
   // ---- Zoom handlers ----
-
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
-      setZoomLevel(prev => {
-        const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, prev + delta));
-        if (next <= 1) {
-          setPanX(0);
-          setPanY(0);
-        } else {
-          // Adjust pan to keep zoom centered on cursor
-          const wrapper = wrapperRef.current;
-          if (wrapper && displaySize) {
-            const rect = wrapper.getBoundingClientRect();
-            const cursorX = e.clientX - rect.left;
-            const cursorY = e.clientY - rect.top;
-            setPanX(px => {
-              const newPx = px - (cursorX / prev) * delta;
-              return clampPan(newPx, 0, next).x;
-            });
-            setPanY(py => {
-              const newPy = py - (cursorY / prev) * delta;
-              return clampPan(0, newPy, next).y;
-            });
-          }
-        }
-        return next;
-      });
-    },
-    [clampPan, displaySize]
-  );
 
   const handleZoomIn = useCallback(() => {
     setZoomLevel(prev => Math.min(ZOOM_MAX, prev + ZOOM_STEP));
@@ -534,7 +510,6 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
           ...styles.imageWrapper,
           cursor: isPanning ? 'grabbing' : isZoomed ? 'grab' : 'default',
         }}
-        onWheel={handleWheel}
         onMouseDown={handlePanMouseDown}
         onMouseMove={handlePanMouseMove}
         onMouseUp={handlePanMouseUp}
@@ -583,10 +558,10 @@ export default function OCRPhotoOverlay(props: OCRPhotoOverlayProps) {
                 // Skip rendering words with zero or negative dimensions
                 if (width <= 0 || height <= 0) return null;
 
-                // Expand selected box by 20% so it doesn't cover the text
+                // Expand selected box by 35% so it frames the text
                 if (isSelected) {
-                  const expandW = width * 0.1;
-                  const expandH = height * 0.1;
+                  const expandW = width * 0.175;
+                  const expandH = height * 0.175;
                   left -= expandW;
                   top -= expandH;
                   width += expandW * 2;

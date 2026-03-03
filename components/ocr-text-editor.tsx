@@ -301,29 +301,36 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
     [selectedWordIndex, allWordIndices, onWordSelect, setSelectedWordIndices]
   );
 
-  // Keyboard handler for the container (Tab navigation + delete)
+  // Advance to next/prev reviewable word
+  const advanceReviewable = useCallback((reverse: boolean) => {
+    setSelectedWordIndices(new Set());
+    if (selectedWordIndex === null) {
+      onWordSelect(reviewableIndices[0] ?? null);
+      if (reviewableIndices[0] !== undefined) {
+        wordRefs.current.get(reviewableIndices[0])?.scrollIntoView({ block: 'nearest' });
+      }
+    } else {
+      const currentPos = reviewableIndices.indexOf(selectedWordIndex);
+      let nextPos: number;
+      if (reverse) {
+        nextPos = currentPos <= 0 ? reviewableIndices.length - 1 : currentPos - 1;
+      } else {
+        nextPos = currentPos >= reviewableIndices.length - 1 ? 0 : currentPos + 1;
+      }
+      const nextIndex = reviewableIndices[nextPos];
+      onWordSelect(nextIndex);
+      wordRefs.current.get(nextIndex)?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedWordIndex, reviewableIndices, onWordSelect, setSelectedWordIndices]);
+
+  // Keyboard handler for the container (Tab navigation + delete + type-to-edit)
   const handleContainerKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (editingWordIndex !== null) return; // Let the action bar input handle its own keys
 
       if (e.key === 'Tab' && reviewableIndices.length > 0) {
         e.preventDefault();
-        setSelectedWordIndices(new Set());
-        if (selectedWordIndex === null) {
-          onWordSelect(reviewableIndices[0]);
-          wordRefs.current.get(reviewableIndices[0])?.scrollIntoView({ block: 'nearest' });
-        } else {
-          const currentPos = reviewableIndices.indexOf(selectedWordIndex);
-          let nextPos: number;
-          if (e.shiftKey) {
-            nextPos = currentPos <= 0 ? reviewableIndices.length - 1 : currentPos - 1;
-          } else {
-            nextPos = currentPos >= reviewableIndices.length - 1 ? 0 : currentPos + 1;
-          }
-          const nextIndex = reviewableIndices[nextPos];
-          onWordSelect(nextIndex);
-          wordRefs.current.get(nextIndex)?.scrollIntoView({ block: 'nearest' });
-        }
+        advanceReviewable(e.shiftKey);
       } else if (e.key === 'Enter' && selectedWordIndex !== null) {
         e.preventDefault();
         startEditing(selectedWordIndex);
@@ -336,9 +343,22 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
           e.preventDefault();
           handleDelete();
         }
+      } else if (e.key === '=' && selectedWordIndex !== null) {
+        // Zoom photo to this word
+        e.preventDefault();
+        onWordDoubleClick?.(selectedWordIndex);
+      } else if (selectedWordIndex !== null && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Any printable character starts editing with that character
+        e.preventDefault();
+        const word = words.find(w => w.word_index === selectedWordIndex);
+        if (word) {
+          setEditingWordIndex(selectedWordIndex);
+          setEditValue(e.key);
+          onWordSelect(selectedWordIndex);
+        }
       }
     },
-    [editingWordIndex, reviewableIndices, selectedWordIndex, onWordSelect, startEditing, selectedWordIndices, setSelectedWordIndices, handleDelete]
+    [editingWordIndex, reviewableIndices, selectedWordIndex, onWordSelect, startEditing, selectedWordIndices, setSelectedWordIndices, handleDelete, advanceReviewable, onWordDoubleClick, words]
   );
 
   // Build the word style
@@ -492,9 +512,13 @@ export default function OCRTextEditor(props: OCRTextEditorProps) {
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' || e.key === 'Tab') {
                   e.preventDefault();
                   submitEdit(editingWordIndex);
+                  // Tab advances to next reviewable word after saving
+                  if (e.key === 'Tab') {
+                    setTimeout(() => advanceReviewable(e.shiftKey), 0);
+                  }
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
                   cancelEditing();
