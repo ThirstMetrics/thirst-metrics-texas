@@ -13,6 +13,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import MenuItemsTable from './menu-items-table';
 
 // ============================================
 // Types
@@ -557,6 +558,15 @@ export default function MenuSectionEditor({
             );
           })}
         </div>
+      )}
+
+      {/* Parsed menu items for selected section */}
+      {selectedIndex !== null && sections[selectedIndex]?.id && drawState.mode === 'idle' && (
+        <MenuItemsTable
+          sectionId={sections[selectedIndex].id!}
+          sectionType={sections[selectedIndex].section_type}
+          photoId={photoId}
+        />
       )}
 
       {/* Loading state for initial data */}
