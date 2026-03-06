@@ -14,6 +14,28 @@ import { CustomerRevenue } from '@/lib/data/beverage-receipts';
 import { CustomerListSkeleton, MapSkeleton } from './skeleton';
 import ErrorFallback from './error-fallback';
 import { useIsMobile } from '@/lib/hooks/use-media-query';
+import PriorityBadge from './priority-badge';
+
+// Extended customer type when sorting by priority
+interface CustomerWithPriority extends CustomerRevenue {
+  priority_score?: number;
+  revenue_score?: number;
+  growth_score?: number;
+  recency_score?: number;
+  tier?: 'top25' | 'top50' | 'top60' | 'top80' | 'bottom20';
+  growth_rate?: number;
+  last_activity_date?: string | null;
+  activity_count?: number;
+  is_stale?: boolean;
+}
+
+type ScoringMode = 'revenue' | 'balanced' | 'coverage';
+
+const SCORING_MODE_OPTIONS = [
+  { label: 'Revenue-Dominant', value: 'revenue' as ScoringMode },
+  { label: 'Balanced', value: 'balanced' as ScoringMode },
+  { label: 'Coverage-Focused', value: 'coverage' as ScoringMode },
+];
 
 // Dynamically import CustomerMap to avoid SSR issues with Mapbox
 const CustomerMap = dynamic(() => import('./customer-map'), {
@@ -79,7 +101,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   const searchParams = useSearchParams();
   const isMobile = useIsMobile();
 
-  const [customers, setCustomers] = useState<CustomerRevenue[]>([]);
+  const [customers, setCustomers] = useState<CustomerWithPriority[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(props.initialPage);
@@ -112,6 +134,10 @@ export default function CustomerListClient(props: CustomerListClientProps) {
   const [error, setError] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
 
+  // Priority scoring state
+  const [priorityMode, setPriorityMode] = useState<ScoringMode>('balanced');
+  const [staleDays, setStaleDays] = useState(30);
+
   // My Accounts (saved/starred accounts)
   const [savedAccounts, setSavedAccounts] = useState<Set<string>>(new Set());
   const [myAccountsFilter, setMyAccountsFilter] = useState<boolean>(() => {
@@ -138,6 +164,10 @@ export default function CustomerListClient(props: CustomerListClientProps) {
       params.set('monthsBack', monthsBack.toString());
       if (sortByRevenue) params.set('sortByRevenue', sortByRevenue);
       if (topN) params.set('topN', topN.toString());
+      if (sortBy === 'priority') {
+        params.set('priorityMode', priorityMode);
+        params.set('staleDays', staleDays.toString());
+      }
 
       // Update URL without triggering navigation during render
       if (typeof window !== 'undefined') {
@@ -163,7 +193,7 @@ export default function CustomerListClient(props: CustomerListClientProps) {
     } finally {
       setLoading(false);
     }
-  }, [page, search, county, city, metroplex, sortBy, sortOrder, minRevenue, monthsBack, sortByRevenue, topN]);
+  }, [page, search, county, city, metroplex, sortBy, sortOrder, minRevenue, monthsBack, sortByRevenue, topN, priorityMode, staleDays]);
   
   useEffect(() => {
     loadCustomers();
@@ -508,18 +538,67 @@ export default function CustomerListClient(props: CustomerListClientProps) {
         }}>
           <span style={styles.timePeriodLabel}>Sort:</span>
           <select
-            value={sortByRevenue}
+            value={sortBy === 'priority' ? 'priority' : sortByRevenue}
             onChange={(e) => {
-              setSortByRevenue(e.target.value);
-              setPage(1);
+              if (e.target.value === 'priority') {
+                setSortBy('priority');
+                setPage(1);
+              } else {
+                setSortBy('revenue');
+                setSortByRevenue(e.target.value);
+                setPage(1);
+              }
             }}
             style={{ ...styles.sortDropdown, flex: isMobile ? 1 : 'none', minHeight: isMobile ? '44px' : 'auto' }}
           >
+            <option value="priority">Priority Score</option>
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
         </div>
+
+        {/* Priority Mode & Stale Days - shown when sort=priority */}
+        {sortBy === 'priority' && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginLeft: isMobile ? 0 : '16px',
+            paddingLeft: isMobile ? 0 : '16px',
+            borderLeft: isMobile ? 'none' : '1px solid #e2e8f0',
+            width: isMobile ? '100%' : 'auto',
+            flexWrap: 'wrap' as const,
+          }}>
+            <span style={styles.timePeriodLabel}>Mode:</span>
+            <select
+              value={priorityMode}
+              onChange={(e) => {
+                setPriorityMode(e.target.value as ScoringMode);
+                setPage(1);
+              }}
+              style={{ ...styles.sortDropdown, flex: isMobile ? 1 : 'none', minHeight: isMobile ? '44px' : 'auto', minWidth: '160px' }}
+            >
+              {SCORING_MODE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <span style={{ ...styles.timePeriodLabel, marginLeft: '8px' }}>Stale:</span>
+            <input
+              type="number"
+              value={staleDays}
+              onChange={(e) => {
+                setStaleDays(parseInt(e.target.value) || 30);
+                setPage(1);
+              }}
+              style={{ ...styles.topNInput, width: '60px', minHeight: isMobile ? '44px' : 'auto' }}
+              min={1}
+              max={365}
+              title="Days without activity to mark as stale"
+            />
+            <span style={{ fontSize: '12px', color: '#64748b' }}>days</span>
+          </div>
+        )}
 
         <div style={{
           ...styles.topNSection,
@@ -789,6 +868,16 @@ export default function CustomerListClient(props: CustomerListClientProps) {
                     Total Revenue {sortBy === 'revenue' && (sortOrder === 'asc' ? '↑' : '↓')}
                   </button>
                 </th>
+                {sortBy === 'priority' && (
+                  <th style={{ ...styles.th, textAlign: 'center' as const, minWidth: 100 }}>
+                    <button
+                      onClick={() => handleSort('priority')}
+                      style={styles.sortButton}
+                    >
+                      Priority {sortBy === 'priority' && (sortOrder === 'asc' ? '↑' : '↓')}
+                    </button>
+                  </th>
+                )}
                 {visibleColumns.wine && (
                   <th style={{ ...styles.th, ...styles.thOptional }}>Wine</th>
                 )}
@@ -864,6 +953,35 @@ export default function CustomerListClient(props: CustomerListClientProps) {
                       {customer.receipt_count} months
                     </div>
                   </td>
+                  {sortBy === 'priority' && (
+                    <td style={{ ...styles.td, textAlign: 'center' as const }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        {customer.tier ? (
+                          <PriorityBadge tier={customer.tier} size="sm" />
+                        ) : (
+                          <span style={{ fontSize: '12px', color: '#94a3b8' }}>—</span>
+                        )}
+                        {customer.priority_score !== undefined && (
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>
+                            {customer.priority_score.toFixed(1)}
+                          </span>
+                        )}
+                        {customer.is_stale && (
+                          <span style={{
+                            fontSize: '10px',
+                            fontWeight: '600',
+                            color: '#ea580c',
+                            backgroundColor: '#fff7ed',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            border: '1px solid #fed7aa',
+                          }}>
+                            stale
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  )}
                   {visibleColumns.wine && (
                     <td style={{ ...styles.td, ...styles.tdOptional }}>
                       {formatCurrency(customer.wine_revenue)}

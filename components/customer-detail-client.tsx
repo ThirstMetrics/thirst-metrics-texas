@@ -36,11 +36,24 @@ interface VisibleSeries {
   beer: boolean;
 }
 
+interface PriorityData {
+  revenue_score: number;
+  growth_score: number;
+  recency_score: number;
+  priority_score: number;
+  tier: 'top25' | 'top50' | 'top60' | 'top80' | 'bottom20';
+  total_revenue: number;
+  growth_rate: number;
+  last_activity_date: string | null;
+  activity_count: number;
+}
+
 interface CustomerDetailClientProps {
   customer: CustomerRevenue;
   monthlyRevenue: MonthlyRevenue[];
   activities: SalesActivity[];
   userId: string;
+  priority?: PriorityData | null;
 }
 
 const TIME_PERIODS: { label: string; value: TimePeriod }[] = [
@@ -77,7 +90,7 @@ interface CustomerCoords {
 }
 
 export default function CustomerDetailClient(props: CustomerDetailClientProps) {
-  const { customer, monthlyRevenue, userId } = props;
+  const { customer, monthlyRevenue, userId, priority } = props;
   const [showActivityForm, setShowActivityForm] = useState(false);
   const [activities, setActivities] = useState<SalesActivity[]>(props.activities);
   const isMobile = useIsMobile();
@@ -225,6 +238,39 @@ export default function CustomerDetailClient(props: CustomerDetailClientProps) {
               {customer.tabc_permit_number}
             </span>
           </div>
+          {/* Priority Component Scores */}
+          {priority && (
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              flexWrap: 'wrap',
+              marginTop: isMobile ? '4px' : '0',
+            }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '600',
+                backgroundColor: '#dbeafe', color: '#1e40af',
+              }}>
+                Revenue: {Math.round(priority.revenue_score)}
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '600',
+                backgroundColor: priority.growth_rate >= 0 ? '#dcfce7' : '#fee2e2',
+                color: priority.growth_rate >= 0 ? '#166534' : '#991b1b',
+              }}>
+                Growth: {Math.round(priority.growth_score)}
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '600',
+                backgroundColor: priority.recency_score >= 50 ? '#f0fdf4' : '#fff7ed',
+                color: priority.recency_score >= 50 ? '#166534' : '#9a3412',
+              }}>
+                Recency: {Math.round(priority.recency_score)}
+              </span>
+            </div>
+          )}
           <button
             onClick={() => setShowActivityForm(!showActivityForm)}
             style={{
