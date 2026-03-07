@@ -218,12 +218,6 @@ export async function POST(request: Request) {
 
       photos = data || [];
 
-      // Warn if some IDs were not found
-      if (photos.length < photoIds.length) {
-        const foundIds = new Set(photos.map(p => p.id));
-        const missing = photoIds.filter((id: string) => !foundIds.has(id));
-        console.warn(`[Admin OCR Reprocess] ${missing.length} photo IDs not found:`, missing.slice(0, 5));
-      }
     } else if (all) {
       // Fetch all legacy photos: have ocr_text but ocr_word_count is 0 or null
       // Paginate to avoid loading too many at once
@@ -266,8 +260,6 @@ export async function POST(request: Request) {
       });
     }
 
-    console.log(`[Admin OCR Reprocess] Starting reprocessing of ${photos.length} photos...`);
-
     // Process photos sequentially to avoid overloading Tesseract
     let processed = 0;
     let failed = 0;
@@ -284,13 +276,7 @@ export async function POST(request: Request) {
         processed++;
       }
 
-      // Log progress every 10 photos
-      if ((processed + failed) % 10 === 0) {
-        console.log(`[Admin OCR Reprocess] Progress: ${processed + failed}/${photos.length} (${processed} ok, ${failed} failed)`);
-      }
     }
-
-    console.log(`[Admin OCR Reprocess] Complete: ${processed} processed, ${failed} failed out of ${photos.length} total`);
 
     return NextResponse.json({
       processed,

@@ -130,8 +130,6 @@ async function triggerOCR(photoUrl: string, activityPhotoId: string): Promise<vo
   try {
     // Use internal API call (same server)
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    console.log(`[Photos API] Triggering OCR for photo ${activityPhotoId} at ${baseUrl}/api/ocr`);
-    console.log(`[Photos API] Photo URL: ${photoUrl}`);
     const response = await fetch(`${baseUrl}/api/ocr`, {
       method: 'POST',
       headers: {
@@ -146,9 +144,6 @@ async function triggerOCR(photoUrl: string, activityPhotoId: string): Promise<vo
     if (!response.ok) {
       const errBody = await response.text();
       console.error(`[Photos API] OCR API returned ${response.status}: ${errBody}`);
-    } else {
-      const ocrResult = await response.json();
-      console.log(`[Photos API] OCR completed: success=${ocrResult.success}, text length=${ocrResult.correctedText?.length || 0}`);
     }
   } catch (err: any) {
     console.error('[Photos API] OCR network error:', err.message);

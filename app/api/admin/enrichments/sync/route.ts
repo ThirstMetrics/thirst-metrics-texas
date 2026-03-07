@@ -119,8 +119,6 @@ export async function POST() {
       ? `screen -dmS thirst-enrich-sync bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-enrich-sync bash -c '${remoteScript}'"`;
 
-    console.log(`[Enrichment Sync API] Launching sync screen session ${isLocal ? 'locally' : 'via SSH'}...`);
-
     const launchResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
         screenCommand,

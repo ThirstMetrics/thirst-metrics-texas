@@ -485,8 +485,6 @@ export async function PUT(request: NextRequest) {
       ? `screen -dmS thirst-ingest bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-ingest bash -c '${remoteScript}'"`;
 
-    console.log(`[Admin Ingestion API] Launching ingestion screen session (${months} months) ${isLocal ? 'locally' : 'via SSH'}...`);
-
     const launchResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
         screenCommand,
@@ -503,8 +501,6 @@ export async function PUT(request: NextRequest) {
         { status: 500 }
       );
     }
-
-    console.log('[Admin Ingestion API] Screen session launched successfully');
 
     return NextResponse.json({
       success: true,
@@ -555,8 +551,6 @@ export async function DELETE() {
     const statusCommand = isLocal
       ? `bash -c '${statusScript}'`
       : `${sshBase} "${statusScript}"`;
-
-    console.log(`[Admin Ingestion API] Checking ingestion status ${isLocal ? 'locally' : 'via SSH'}...`);
 
     const statusResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(

@@ -398,7 +398,6 @@ export default function AdminOCRReview() {
         body: JSON.stringify({ all: true }),
       });
       const data = await res.json();
-      console.log('[OCR Review] Reprocess all result:', data);
       // Refresh data after reprocessing
       fetchQueue();
       fetchReprocessStats();

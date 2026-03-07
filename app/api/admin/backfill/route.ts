@@ -172,8 +172,6 @@ export async function POST(request: NextRequest) {
       ? `screen -dmS thirst-backfill bash -c '${remoteScript}'`
       : `${sshBase} "screen -dmS thirst-backfill bash -c '${remoteScript}'"`;
 
-    console.log(`[Admin Backfill API] Launching backfill screen session (${months} months) ${isLocal ? 'locally' : 'via SSH'}...`);
-
     const launchResult = await new Promise<{ stdout: string; stderr: string; error: any }>((resolve) => {
       exec(
         screenCommand,
@@ -189,8 +187,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-
-    console.log('[Admin Backfill API] Screen session launched successfully');
 
     return NextResponse.json({
       success: true,

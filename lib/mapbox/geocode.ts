@@ -441,7 +441,7 @@ export async function geocodeAddress(
     const data: MapboxGeocodeResponse = await response.json();
 
     if (!data.features || data.features.length === 0) {
-      console.warn(`No geocoding results for address: ${address}`);
+      console.error(`No geocoding results for address: ${address}`);
       return null;
     }
 

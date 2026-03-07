@@ -468,7 +468,6 @@ export async function GET(request: Request) {
         const avgCount = benchSlice.reduce((sum, r) => sum + ((r as any).locationCount ?? 0), 0) / benchSlice.length;
 
         if (avgCount > 0 && lastCount < avgCount * COMPLETENESS_THRESHOLD) {
-          console.log(`[Analytics API] Trimming incomplete month ${last.month}: ${lastCount} locations vs ${avgCount.toFixed(0)} avg (${((lastCount / avgCount) * 100).toFixed(1)}%)`);
           sorted.pop();
         } else {
           break; // last month looks complete

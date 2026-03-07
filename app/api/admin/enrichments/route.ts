@@ -314,7 +314,7 @@ export async function PUT(request: NextRequest) {
           }
         } catch (geoError: any) {
           // Geocoding failure is non-fatal
-          console.warn(`[Enrichments API] Geocode failed for ${enrichment.tabc_permit_number}:`, geoError?.message);
+          console.error(`[Enrichments API] Geocode failed for ${enrichment.tabc_permit_number}:`, geoError?.message);
         }
       } catch (err: any) {
         errors.push(`${enrichment.tabc_permit_number}: ${err?.message || 'Unknown error'}`);
