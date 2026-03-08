@@ -52,13 +52,15 @@ interface ActivityTimelineProps {
   permitNumber: string;
   userId: string;
   onActivityCreated: () => void;
+  /** Called after an edit or delete so the parent can refresh the list */
+  onActivityChanged?: () => void;
   showForm: boolean;
   onCloseForm: () => void;
   onOpenForm?: () => void;
 }
 
 export default function ActivityTimeline(props: ActivityTimelineProps) {
-  const { activities, permitNumber, userId, onActivityCreated, showForm, onCloseForm, onOpenForm } = props;
+  const { activities, permitNumber, userId, onActivityCreated, onActivityChanged, showForm, onCloseForm, onOpenForm } = props;
 
   // Show/hide older activities - only show most recent by default
   const [showAllActivities, setShowAllActivities] = useState(false);
@@ -69,6 +71,14 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
     activities.length > 0 ? activities[0]?.id || null : null
   );
 
+  // Edit mode state
+  const [editingActivity, setEditingActivity] = useState<SalesActivity | null>(null);
+
+  // Delete confirm state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // Photo viewer state
   const [viewerPhotos, setViewerPhotos] = useState<Photo[]>([]);
   const [viewerInitialIndex, setViewerInitialIndex] = useState(0);
@@ -76,6 +86,43 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
 
   const toggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);
+  };
+
+  const handleEditClick = (activity: SalesActivity, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingActivity(activity);
+  };
+
+  const handleDeleteClick = (activityId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteError(null);
+    setDeleteConfirmId(activityId);
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmId(null);
+    setDeleteError(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirmId) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/activities/${deleteConfirmId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete activity');
+      }
+      setDeleteConfirmId(null);
+      onActivityChanged?.();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete activity');
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   // Determine which activities to display
@@ -146,6 +193,22 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
       activity.avail_sunday_am || activity.avail_sunday_pm;
   };
 
+  // Edit form takes priority over create form
+  if (editingActivity) {
+    return (
+      <ActivityForm
+        permitNumber={permitNumber}
+        userId={userId}
+        editActivity={editingActivity}
+        onSuccess={() => {
+          setEditingActivity(null);
+          onActivityChanged?.();
+        }}
+        onCancel={() => setEditingActivity(null)}
+      />
+    );
+  }
+
   if (showForm) {
     return (
       <ActivityForm
@@ -181,6 +244,32 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
 
           return (
             <div key={activity.id} style={styles.activityItem}>
+              {/* Delete Confirm Dialog */}
+              {deleteConfirmId === activity.id && (
+                <div style={styles.deleteConfirm}>
+                  <span style={styles.deleteConfirmText}>Delete this activity?</span>
+                  {deleteError && <span style={styles.deleteConfirmError}>{deleteError}</span>}
+                  <div style={styles.deleteConfirmActions}>
+                    <button
+                      type="button"
+                      onClick={handleDeleteConfirm}
+                      disabled={deleteLoading}
+                      style={styles.deleteConfirmBtn}
+                    >
+                      {deleteLoading ? 'Deleting...' : 'Yes, delete'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeleteCancel}
+                      disabled={deleteLoading}
+                      style={styles.deleteCancelBtn}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Clickable Header */}
               <div
                 style={styles.activityHeader}
@@ -213,6 +302,25 @@ export default function ActivityTimeline(props: ActivityTimelineProps) {
                     {activity.outcome}
                   </div>
                 )}
+                {/* Edit / Delete action buttons */}
+                <div style={styles.activityActions} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(e) => handleEditClick(activity, e)}
+                    style={styles.editBtn}
+                    title="Edit activity"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteClick(activity.id!, e)}
+                    style={styles.deleteBtn}
+                    title="Delete activity"
+                  >
+                    Delete
+                  </button>
+                </div>
                 <span style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</span>
               </div>
 
@@ -731,5 +839,77 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: '500',
     cursor: 'pointer',
     transition: 'all 0.2s',
+  },
+  activityActions: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center',
+    marginRight: '4px',
+  },
+  editBtn: {
+    padding: '4px 10px',
+    background: brandColors.primary,
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  deleteBtn: {
+    padding: '4px 10px',
+    background: '#ef4444',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '12px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  deleteConfirm: {
+    marginBottom: '10px',
+    padding: '10px 14px',
+    background: '#fef2f2',
+    border: '1px solid #fca5a5',
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    flexWrap: 'wrap' as const,
+  },
+  deleteConfirmText: {
+    fontSize: '14px',
+    color: '#991b1b',
+    fontWeight: '500',
+  },
+  deleteConfirmError: {
+    fontSize: '12px',
+    color: '#ef4444',
+    flex: '1 1 100%',
+  },
+  deleteConfirmActions: {
+    display: 'flex',
+    gap: '8px',
+    marginLeft: 'auto',
+  },
+  deleteConfirmBtn: {
+    padding: '6px 14px',
+    background: '#ef4444',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  deleteCancelBtn: {
+    padding: '6px 14px',
+    background: '#6b7280',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '13px',
+    fontWeight: '500',
+    cursor: 'pointer',
   },
 };

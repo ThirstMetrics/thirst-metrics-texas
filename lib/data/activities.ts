@@ -171,35 +171,39 @@ export async function getActivityById(activityId: string): Promise<SalesActivity
 
 /**
  * Update an activity
+ * Uses service role client to bypass RLS — API route has already authenticated the user
+ * and verified ownership before calling this function.
  */
 export async function updateActivity(activityId: string, updates: Partial<SalesActivity>): Promise<SalesActivity> {
-  const supabase = await createServerClient();
-  
+  const supabase = createServiceClient();
+
   const { data, error } = await supabase
     .from('sales_activities')
     .update(updates)
     .eq('id', activityId)
     .select()
     .single();
-  
+
   if (error) {
     throw new Error(`Failed to update activity: ${error.message}`);
   }
-  
+
   return data;
 }
 
 /**
  * Delete an activity
+ * Uses service role client to bypass RLS — API route has already authenticated the user
+ * and verified ownership before calling this function.
  */
 export async function deleteActivity(activityId: string): Promise<void> {
-  const supabase = await createServerClient();
-  
+  const supabase = createServiceClient();
+
   const { error } = await supabase
     .from('sales_activities')
     .delete()
     .eq('id', activityId);
-  
+
   if (error) {
     throw new Error(`Failed to delete activity: ${error.message}`);
   }

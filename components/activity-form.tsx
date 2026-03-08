@@ -10,6 +10,7 @@ import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import imageCompression from 'browser-image-compression';
 import { useIsMobile } from '@/lib/hooks/use-media-query';
+import { SalesActivity } from '@/lib/data/activities';
 
 // PhotoType for the server-side upload
 type PhotoType = 'receipt' | 'menu' | 'product_display' | 'shelf' | 'other';
@@ -23,10 +24,13 @@ interface ActivityFormProps {
   userId: string;
   onSuccess: () => void;
   onCancel: () => void;
+  /** When provided, the form operates in edit mode, pre-populated with this activity */
+  editActivity?: SalesActivity;
 }
 
 export default function ActivityForm(props: ActivityFormProps) {
-  const { permitNumber, userId, onSuccess, onCancel } = props;
+  const { permitNumber, userId, onSuccess, onCancel, editActivity } = props;
+  const isEditMode = !!editActivity;
   const isMobile = useIsMobile();
 
   const [loading, setLoading] = useState(false);
@@ -38,40 +42,40 @@ export default function ActivityForm(props: ActivityFormProps) {
   } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // Form state
+
+  // Build initial form state — pre-populate from editActivity when editing
   const [formData, setFormData] = useState({
-    activity_type: 'visit' as 'visit' | 'call' | 'email' | 'note',
-    activity_date: format(new Date(), 'yyyy-MM-dd'),
-    notes: '',
-    outcome: '' as '' | 'positive' | 'neutral' | 'negative' | 'no_contact',
-    next_followup_date: '',
-    contact_name: '',
-    contact_cell_phone: '',
-    contact_email: '',
-    contact_preferred_method: '' as '' | 'text' | 'call' | 'email' | 'in_person',
-    decision_maker: false,
-    conversation_summary: '',
-    product_interest: [] as string[],
-    current_products_carried: '',
-    objections: '',
-    competitors_mentioned: [] as string[],
-    next_action: '',
+    activity_type: (editActivity?.activity_type ?? 'visit') as 'visit' | 'call' | 'email' | 'note',
+    activity_date: editActivity?.activity_date ?? format(new Date(), 'yyyy-MM-dd'),
+    notes: editActivity?.notes ?? '',
+    outcome: (editActivity?.outcome ?? '') as '' | 'positive' | 'neutral' | 'negative' | 'no_contact',
+    next_followup_date: editActivity?.next_followup_date ?? '',
+    contact_name: editActivity?.contact_name ?? '',
+    contact_cell_phone: editActivity?.contact_cell_phone ?? '',
+    contact_email: editActivity?.contact_email ?? '',
+    contact_preferred_method: (editActivity?.contact_preferred_method ?? '') as '' | 'text' | 'call' | 'email' | 'in_person',
+    decision_maker: editActivity?.decision_maker ?? false,
+    conversation_summary: editActivity?.conversation_summary ?? '',
+    product_interest: editActivity?.product_interest ?? ([] as string[]),
+    current_products_carried: editActivity?.current_products_carried ?? '',
+    objections: editActivity?.objections ?? '',
+    competitors_mentioned: editActivity?.competitors_mentioned ?? ([] as string[]),
+    next_action: editActivity?.next_action ?? '',
     availability: {
-      monday_am: false,
-      monday_pm: false,
-      tuesday_am: false,
-      tuesday_pm: false,
-      wednesday_am: false,
-      wednesday_pm: false,
-      thursday_am: false,
-      thursday_pm: false,
-      friday_am: false,
-      friday_pm: false,
-      saturday_am: false,
-      saturday_pm: false,
-      sunday_am: false,
-      sunday_pm: false,
+      monday_am: editActivity?.avail_monday_am ?? false,
+      monday_pm: editActivity?.avail_monday_pm ?? false,
+      tuesday_am: editActivity?.avail_tuesday_am ?? false,
+      tuesday_pm: editActivity?.avail_tuesday_pm ?? false,
+      wednesday_am: editActivity?.avail_wednesday_am ?? false,
+      wednesday_pm: editActivity?.avail_wednesday_pm ?? false,
+      thursday_am: editActivity?.avail_thursday_am ?? false,
+      thursday_pm: editActivity?.avail_thursday_pm ?? false,
+      friday_am: editActivity?.avail_friday_am ?? false,
+      friday_pm: editActivity?.avail_friday_pm ?? false,
+      saturday_am: editActivity?.avail_saturday_am ?? false,
+      saturday_pm: editActivity?.avail_saturday_pm ?? false,
+      sunday_am: editActivity?.avail_sunday_am ?? false,
+      sunday_pm: editActivity?.avail_sunday_pm ?? false,
     },
   });
   
@@ -129,7 +133,7 @@ export default function ActivityForm(props: ActivityFormProps) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    
+
     try {
       // Build availability object for database
       const availabilityFields: Record<string, boolean> = {};
@@ -141,78 +145,128 @@ export default function ActivityForm(props: ActivityFormProps) {
         const dbKey = `avail_${day}_${period}`;
         availabilityFields[dbKey] = value;
       });
-      
-      const activityData = {
-        user_id: userId,
-        tabc_permit_number: permitNumber,
-        activity_type: formData.activity_type,
-        activity_date: formData.activity_date,
-        notes: formData.notes || null,
-        outcome: formData.outcome || null,
-        next_followup_date: formData.next_followup_date || null,
-        contact_name: formData.contact_name || null,
-        contact_cell_phone: formData.contact_cell_phone || null,
-        contact_email: formData.contact_email || null,
-        contact_preferred_method: formData.contact_preferred_method || null,
-        decision_maker: formData.decision_maker,
-        conversation_summary: formData.conversation_summary || null,
-        product_interest: formData.product_interest.length > 0 ? formData.product_interest : null,
-        current_products_carried: formData.current_products_carried || null,
-        objections: formData.objections || null,
-        competitors_mentioned: formData.competitors_mentioned.length > 0 ? formData.competitors_mentioned : null,
-        next_action: formData.next_action || null,
-        gps_latitude: gpsLocation?.latitude || null,
-        gps_longitude: gpsLocation?.longitude || null,
-        gps_accuracy_meters: gpsLocation?.accuracy || null,
-        ...availabilityFields,
-      };
-      
-      const response = await fetch('/api/activities', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(activityData),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create activity');
-      }
-      
-      const result = await response.json();
-      const activityId = result.activity?.id;
-      
-      if (activityId && pendingPhotos.length > 0) {
-        setPhotoUploadProgress(`Uploading ${pendingPhotos.length} photo(s)...`);
-        for (let i = 0; i < pendingPhotos.length; i++) {
-          const photo = pendingPhotos[i];
-          setPhotoUploadProgress(`Photo ${i + 1} of ${pendingPhotos.length}...`);
 
-          // Upload via server-side API (bypasses RLS)
-          const photoFormData = new FormData();
-          photoFormData.append('file', photo.file);
-          photoFormData.append('activityId', activityId);
-          photoFormData.append('permitNumber', permitNumber);
-          photoFormData.append('photoType', photo.type); // Use per-photo type
+      if (isEditMode && editActivity?.id) {
+        // --- EDIT PATH: PATCH existing activity ---
+        const patchData = {
+          activity_date: formData.activity_date,
+          notes: formData.notes || null,
+          outcome: formData.outcome || null,
+          next_followup_date: formData.next_followup_date || null,
+          contact_name: formData.contact_name || null,
+          contact_cell_phone: formData.contact_cell_phone || null,
+          contact_email: formData.contact_email || null,
+          contact_preferred_method: formData.contact_preferred_method || null,
+          decision_maker: formData.decision_maker,
+          conversation_summary: formData.conversation_summary || null,
+          product_interest: formData.product_interest.length > 0 ? formData.product_interest : null,
+          current_products_carried: formData.current_products_carried || null,
+          objections: formData.objections || null,
+          competitors_mentioned: formData.competitors_mentioned.length > 0 ? formData.competitors_mentioned : null,
+          next_action: formData.next_action || null,
+          ...availabilityFields,
+        };
 
-          const photoResponse = await fetch('/api/photos', {
-            method: 'POST',
-            body: photoFormData,
-          });
+        const response = await fetch(`/api/activities/${editActivity.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patchData),
+        });
 
-          if (!photoResponse.ok) {
-            const photoError = await photoResponse.json();
-            console.error(`Photo ${i + 1} upload failed:`, photoError);
-            // Continue with other photos even if one fails
-          }
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to update activity');
         }
-        setPhotoUploadProgress(null);
+
+        // Upload any new photos added during edit
+        if (pendingPhotos.length > 0) {
+          setPhotoUploadProgress(`Uploading ${pendingPhotos.length} photo(s)...`);
+          for (let i = 0; i < pendingPhotos.length; i++) {
+            const photo = pendingPhotos[i];
+            setPhotoUploadProgress(`Photo ${i + 1} of ${pendingPhotos.length}...`);
+            const photoFormData = new FormData();
+            photoFormData.append('file', photo.file);
+            photoFormData.append('activityId', editActivity.id);
+            photoFormData.append('permitNumber', permitNumber);
+            photoFormData.append('photoType', photo.type);
+            const photoResponse = await fetch('/api/photos', {
+              method: 'POST',
+              body: photoFormData,
+            });
+            if (!photoResponse.ok) {
+              const photoError = await photoResponse.json();
+              console.error(`Photo ${i + 1} upload failed:`, photoError);
+            }
+          }
+          setPhotoUploadProgress(null);
+        }
+      } else {
+        // --- CREATE PATH: POST new activity ---
+        const activityData = {
+          user_id: userId,
+          tabc_permit_number: permitNumber,
+          activity_type: formData.activity_type,
+          activity_date: formData.activity_date,
+          notes: formData.notes || null,
+          outcome: formData.outcome || null,
+          next_followup_date: formData.next_followup_date || null,
+          contact_name: formData.contact_name || null,
+          contact_cell_phone: formData.contact_cell_phone || null,
+          contact_email: formData.contact_email || null,
+          contact_preferred_method: formData.contact_preferred_method || null,
+          decision_maker: formData.decision_maker,
+          conversation_summary: formData.conversation_summary || null,
+          product_interest: formData.product_interest.length > 0 ? formData.product_interest : null,
+          current_products_carried: formData.current_products_carried || null,
+          objections: formData.objections || null,
+          competitors_mentioned: formData.competitors_mentioned.length > 0 ? formData.competitors_mentioned : null,
+          next_action: formData.next_action || null,
+          gps_latitude: gpsLocation?.latitude || null,
+          gps_longitude: gpsLocation?.longitude || null,
+          gps_accuracy_meters: gpsLocation?.accuracy || null,
+          ...availabilityFields,
+        };
+
+        const response = await fetch('/api/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(activityData),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to create activity');
+        }
+
+        const result = await response.json();
+        const activityId = result.activity?.id;
+
+        if (activityId && pendingPhotos.length > 0) {
+          setPhotoUploadProgress(`Uploading ${pendingPhotos.length} photo(s)...`);
+          for (let i = 0; i < pendingPhotos.length; i++) {
+            const photo = pendingPhotos[i];
+            setPhotoUploadProgress(`Photo ${i + 1} of ${pendingPhotos.length}...`);
+            const photoFormData = new FormData();
+            photoFormData.append('file', photo.file);
+            photoFormData.append('activityId', activityId);
+            photoFormData.append('permitNumber', permitNumber);
+            photoFormData.append('photoType', photo.type);
+            const photoResponse = await fetch('/api/photos', {
+              method: 'POST',
+              body: photoFormData,
+            });
+            if (!photoResponse.ok) {
+              const photoError = await photoResponse.json();
+              console.error(`Photo ${i + 1} upload failed:`, photoError);
+            }
+          }
+          setPhotoUploadProgress(null);
+        }
       }
-      
+
       onSuccess();
     } catch (err: any) {
-      setError(err.message || 'Failed to create activity');
+      setError(err.message || (isEditMode ? 'Failed to update activity' : 'Failed to create activity'));
       setLoading(false);
     }
   };
@@ -290,7 +344,7 @@ export default function ActivityForm(props: ActivityFormProps) {
         <h2 style={{
           ...styles.title,
           ...(isMobile ? { fontSize: '20px' } : {}),
-        }}>Log Activity</h2>
+        }}>{isEditMode ? 'Edit Activity' : 'Log Activity'}</h2>
         <button type="button" onClick={onCancel} style={styles.cancelButton}>
           Cancel
         </button>
@@ -345,7 +399,12 @@ export default function ActivityForm(props: ActivityFormProps) {
               value={formData.activity_type}
               onChange={(e) => setFormData({ ...formData, activity_type: e.target.value as any })}
               required
-              style={{ ...styles.select, ...(isMobile ? { padding: '14px' } : {}) }}
+              disabled={isEditMode}
+              style={{
+                ...styles.select,
+                ...(isMobile ? { padding: '14px' } : {}),
+                ...(isEditMode ? { backgroundColor: '#f5f5f5', cursor: 'not-allowed' } : {}),
+              }}
             >
               <option value="visit">Visit</option>
               <option value="call">Call</option>
@@ -790,7 +849,7 @@ export default function ActivityForm(props: ActivityFormProps) {
           ...styles.submitButton,
           ...(isMobile ? { flex: 1 } : {}),
         }}>
-          {loading ? 'Saving...' : 'Save Activity'}
+          {loading ? 'Saving...' : (isEditMode ? 'Update Activity' : 'Save Activity')}
         </button>
         <button type="button" onClick={onCancel} style={{
           ...styles.cancelButton,

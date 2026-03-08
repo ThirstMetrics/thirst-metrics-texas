@@ -379,6 +379,7 @@ export default function CustomerDetailClient(props: CustomerDetailClientProps) {
                 setShowActivityForm(false);
                 refreshActivities();
               }}
+              onActivityChanged={refreshActivities}
               showForm={showActivityForm}
               onCloseForm={() => setShowActivityForm(false)}
               onOpenForm={() => setShowActivityForm(true)}
