@@ -1,14 +1,13 @@
 /**
  * Analytics Page
- * Server component that checks auth and renders the analytics dashboard
- * Accessible to manager and admin roles
+ * Client component with dynamic Recharts import (ssr: false requires 'use client' in Next.js 15+)
+ * Auth enforced by middleware
  */
 
-import { redirect } from 'next/navigation';
-import { createServerClient } from '@/lib/supabase/server';
+'use client';
+
 import dynamic from 'next/dynamic';
 
-// Dynamic import to avoid SSR issues with Recharts
 const AnalyticsClient = dynamic(() => import('@/components/analytics-client'), {
   ssr: false,
   loading: () => (
@@ -27,14 +26,7 @@ const AnalyticsClient = dynamic(() => import('@/components/analytics-client'), {
   ),
 });
 
-export default async function AnalyticsPage() {
-  const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect('/login');
-  }
-
+export default function AnalyticsPage() {
   return (
     <div style={styles.container}>
       {/* Page Header */}

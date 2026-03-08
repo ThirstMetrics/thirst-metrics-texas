@@ -8,12 +8,13 @@ import { getCustomerMonthlyRevenue } from '@/lib/data/beverage-receipts';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { permit: string } }
+  { params }: { params: Promise<{ permit: string }> }
 ) {
   try {
+    const { permit } = await params;
     const searchParams = request.nextUrl.searchParams;
     const months = parseInt(searchParams.get('months') || '12', 10);
-    const permitNumber = decodeURIComponent(params.permit);
+    const permitNumber = decodeURIComponent(permit);
 
     const data = await getCustomerMonthlyRevenue(permitNumber, months);
 

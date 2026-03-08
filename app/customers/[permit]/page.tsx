@@ -13,7 +13,7 @@ import CustomerDetailClient from '@/components/customer-detail-client';
 export default async function CustomerDetailPage({
   params,
 }: {
-  params: { permit: string };
+  params: Promise<{ permit: string }>;
 }) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -22,7 +22,8 @@ export default async function CustomerDetailPage({
     redirect('/login');
   }
 
-  const permitNumber = decodeURIComponent(params.permit);
+  const { permit } = await params;
+  const permitNumber = decodeURIComponent(permit);
 
   // Fetch customer data + priority scores
   const [customer, monthlyRevenue, activities, priority] = await Promise.all([

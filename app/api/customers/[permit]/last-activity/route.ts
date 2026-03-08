@@ -29,7 +29,7 @@ interface ErrorResponse {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { permit: string } }
+  { params }: { params: Promise<{ permit: string }> }
 ): Promise<NextResponse<LastActivityResponse | ErrorResponse>> {
   try {
     // Auth check
@@ -42,8 +42,9 @@ export async function GET(
         { status: 401 }
       );
     }
+    const { permit } = await params;
 
-    const permitNumber = decodeURIComponent(params.permit);
+    const permitNumber = decodeURIComponent(permit);
 
     if (!permitNumber) {
       return NextResponse.json(

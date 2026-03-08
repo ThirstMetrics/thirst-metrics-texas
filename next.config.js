@@ -2,15 +2,13 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@thirst-metrics/ocr-engine'],
-  experimental: {
-    serverComponentsExternalPackages: [
-      '@duckdb/node-api',
-      '@duckdb/node-bindings',
-      'tesseract.js',
-      'tesseract.js-core',
-      '@anthropic-ai/sdk',
-    ],
-  },
+  serverExternalPackages: [
+    '@duckdb/node-api',
+    '@duckdb/node-bindings',
+    'tesseract.js',
+    'tesseract.js-core',
+    '@anthropic-ai/sdk',
+  ],
 
   webpack: (config, { isServer, webpack }) => {
     // Only apply to server-side builds (API routes, server components)

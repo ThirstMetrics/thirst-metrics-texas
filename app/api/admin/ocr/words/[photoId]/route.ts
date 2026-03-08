@@ -21,10 +21,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: Request,
-  { params }: { params: { photoId: string } }
+  { params }: { params: Promise<{ photoId: string }> }
 ) {
   try {
-    const { photoId } = params;
+    const { photoId } = await params;
 
     if (!photoId) {
       return NextResponse.json(
@@ -90,10 +90,10 @@ export async function GET(
  */
 export async function POST(
   request: Request,
-  { params }: { params: { photoId: string } }
+  { params }: { params: Promise<{ photoId: string }> }
 ) {
   try {
-    const { photoId } = params;
+    const { photoId } = await params;
 
     if (!photoId) {
       return NextResponse.json(

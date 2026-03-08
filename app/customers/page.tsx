@@ -21,7 +21,7 @@ const brandColors = {
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -31,14 +31,15 @@ export default async function CustomersPage({
   }
 
   // Parse search params
-  const page = parseInt(searchParams.page as string) || 1;
-  const search = (searchParams.search as string) || '';
-  const county = (searchParams.county as string) || '';
-  const city = (searchParams.city as string) || '';
-  const sortBy = (searchParams.sortBy as string) || 'revenue';
-  const sortOrder = (searchParams.sortOrder as 'asc' | 'desc') || 'desc';
-  const minRevenue = searchParams.minRevenue ? parseFloat(searchParams.minRevenue as string) : undefined;
-  const monthsBack = parseInt(searchParams.monthsBack as string) || 12;
+  const resolvedParams = await searchParams;
+  const page = parseInt(resolvedParams.page as string) || 1;
+  const search = (resolvedParams.search as string) || '';
+  const county = (resolvedParams.county as string) || '';
+  const city = (resolvedParams.city as string) || '';
+  const sortBy = (resolvedParams.sortBy as string) || 'revenue';
+  const sortOrder = (resolvedParams.sortOrder as 'asc' | 'desc') || 'desc';
+  const minRevenue = resolvedParams.minRevenue ? parseFloat(resolvedParams.minRevenue as string) : undefined;
+  const monthsBack = parseInt(resolvedParams.monthsBack as string) || 12;
 
   const limit = 50;
   const offset = (page - 1) * limit;

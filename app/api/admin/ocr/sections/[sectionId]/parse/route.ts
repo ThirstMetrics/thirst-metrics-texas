@@ -26,10 +26,10 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(
   request: Request,
-  { params }: { params: { sectionId: string } }
+  { params }: { params: Promise<{ sectionId: string }> }
 ) {
   try {
-    const { sectionId } = params;
+    const { sectionId } = await params;
 
     if (!sectionId) {
       return NextResponse.json(

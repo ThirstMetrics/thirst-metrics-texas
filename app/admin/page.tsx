@@ -1,15 +1,14 @@
 /**
  * Admin Page
- * Server component that checks auth and renders the admin dashboard
- * Accessible to admin role only
+ * Client component with dynamic import (ssr: false requires 'use client' in Next.js 15+)
+ * Auth enforced by middleware
  */
 
-import { redirect } from 'next/navigation';
-import { createServerClient } from '@/lib/supabase/server';
+'use client';
+
 import dynamic from 'next/dynamic';
 import PageContentWrapper from '@/components/page-content-wrapper';
 
-// Dynamic import to avoid SSR issues with Recharts
 const AdminClient = dynamic(() => import('@/components/admin-client'), {
   ssr: false,
   loading: () => (
@@ -28,14 +27,7 @@ const AdminClient = dynamic(() => import('@/components/admin-client'), {
   ),
 });
 
-export default async function AdminPage() {
-  const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect('/login');
-  }
-
+export default function AdminPage() {
   return (
     <div style={styles.container}>
       {/* Page Header */}

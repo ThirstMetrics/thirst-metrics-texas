@@ -19,10 +19,10 @@ const VALID_STATUSES = ['reviewed', 'needs_review'];
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { photoId: string } }
+  { params }: { params: Promise<{ photoId: string }> }
 ) {
   try {
-    const { photoId } = params;
+    const { photoId } = await params;
 
     if (!photoId) {
       return NextResponse.json(

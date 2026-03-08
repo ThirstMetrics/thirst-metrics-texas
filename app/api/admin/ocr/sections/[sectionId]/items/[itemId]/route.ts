@@ -23,10 +23,10 @@ const VALID_MATCH_STATUSES = ['unmatched', 'auto_matched', 'user_confirmed', 'us
  */
 export async function PUT(
   request: Request,
-  { params }: { params: { sectionId: string; itemId: string } }
+  { params }: { params: Promise<{ sectionId: string; itemId: string }> }
 ) {
   try {
-    const { sectionId, itemId } = params;
+    const { sectionId, itemId } = await params;
 
     if (!sectionId || !itemId) {
       return NextResponse.json(
@@ -115,10 +115,10 @@ export async function PUT(
  */
 export async function DELETE(
   request: Request,
-  { params }: { params: { sectionId: string; itemId: string } }
+  { params }: { params: Promise<{ sectionId: string; itemId: string }> }
 ) {
   try {
-    const { sectionId, itemId } = params;
+    const { sectionId, itemId } = await params;
 
     if (!sectionId || !itemId) {
       return NextResponse.json(

@@ -7,7 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as duckdb from 'duckdb';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import * as cliProgress from 'cli-progress';
 import chalk from 'chalk';
 import { runQuery, closeConnection, closeDatabase } from './duckdb-helpers';
@@ -32,10 +32,21 @@ async function ingestMetroplexes() {
   console.log(chalk.blue('📂 Reading metroplex Excel file...'));
 
   // Read Excel file
-  const workbook = XLSX.readFile(EXCEL_PATH);
-  const sheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[sheetName];
-  const rows: MetroplexRow[] = XLSX.utils.sheet_to_json(worksheet);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(EXCEL_PATH);
+  const worksheet = workbook.worksheets[0];
+
+  // Convert to row objects using header row
+  const headers = (worksheet.getRow(1).values as (string | undefined)[]).slice(1); // 1-indexed, skip index 0
+  const rows: MetroplexRow[] = [];
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return; // skip header
+    const obj: any = {};
+    (row.values as (string | undefined)[]).slice(1).forEach((val, i) => {
+      if (headers[i]) obj[headers[i] as string] = val;
+    });
+    rows.push(obj as MetroplexRow);
+  });
 
   console.log(chalk.green(`✓ Found ${rows.length} metroplex records`));
 
