@@ -22,7 +22,9 @@ const routeRoles: Record<string, string[]> = {
   '/activities': ['salesperson', 'manager', 'admin'],
   '/goals': ['salesperson', 'manager', 'admin'],
   '/analytics': ['manager', 'admin'],
+  '/chains': ['salesperson', 'manager', 'admin'],
   '/billing': ['salesperson', 'manager', 'admin'],
+  '/territories': ['manager', 'admin'],
 };
 
 // Subscription statuses that allow app access
