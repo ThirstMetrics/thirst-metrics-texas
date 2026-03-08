@@ -45,6 +45,7 @@ export default function NavBar({ currentPath, userEmail, userRole }: NavBarProps
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/customers', label: 'Customers' },
     { href: '/activities', label: 'Activities' },
+    { href: '/chains', label: 'Chains' },
   ];
 
   // Add Analytics for manager and admin
@@ -225,6 +226,7 @@ export default function NavBar({ currentPath, userEmail, userRole }: NavBarProps
             const icon = link.href === '/dashboard' ? '\u{1F3E0}'
               : link.href === '/customers' ? '\u{1F465}'
               : link.href === '/activities' ? '\u{1F4DD}'
+              : link.href === '/chains' ? '\u{1F517}'
               : link.href === '/analytics' ? '\u{1F4CA}'
               : link.href === '/admin' ? '\u{2699}\u{FE0F}'
               : '\u{1F4C4}';
