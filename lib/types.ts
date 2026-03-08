@@ -8,6 +8,7 @@ export interface User {
   id: string;
   role: UserRole;
   territory_id: string | null;
+  org_id: string | null;
   created_at: string;
   updated_at: string;
 }

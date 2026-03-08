@@ -1,15 +1,18 @@
 /**
- * Role-Based Middleware
- * Protects routes based on user roles: salesperson, manager, admin
- * Uses @supabase/ssr for reliable cookie-based session detection
+ * Role-Based + Subscription Middleware
+ * Protects routes based on user roles and subscription status.
+ * Uses @supabase/ssr for reliable cookie-based session detection.
  */
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createMiddlewareClient } from '@/lib/supabase/middleware';
 
-// Public routes that don't require authentication
+// Routes that never require auth or subscription
 const publicRoutes = ['/login', '/signup', '/'];
+
+// Routes that require auth but NOT a subscription
+const billingExemptRoutes = ['/billing', '/settings', '/preferences'];
 
 // Role-based route protection
 const routeRoles: Record<string, string[]> = {
@@ -18,7 +21,11 @@ const routeRoles: Record<string, string[]> = {
   '/customers': ['salesperson', 'manager', 'admin'],
   '/activities': ['salesperson', 'manager', 'admin'],
   '/analytics': ['manager', 'admin'],
+  '/billing': ['salesperson', 'manager', 'admin'],
 };
+
+// Subscription statuses that allow app access
+const allowedStatuses = ['active', 'trialing', 'past_due'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -54,10 +61,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    // Get user role from database
+    // Get user role and org from database
     const { data: userData } = await supabase
       .from('users')
-      .select('role')
+      .select('role, org_id')
       .eq('id', user.id)
       .single();
 
@@ -70,6 +77,23 @@ export async function middleware(request: NextRequest) {
           return NextResponse.redirect(new URL('/dashboard', request.url));
         }
         break;
+      }
+    }
+
+    // Subscription gating — skip for billing-exempt routes
+    const isBillingExempt = billingExemptRoutes.some(
+      (route) => pathname === route || pathname.startsWith(route + '/')
+    );
+
+    if (!isBillingExempt && userData?.org_id) {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('subscription_status')
+        .eq('id', userData.org_id)
+        .single();
+
+      if (org && !allowedStatuses.includes(org.subscription_status)) {
+        return NextResponse.redirect(new URL('/billing', request.url));
       }
     }
 
