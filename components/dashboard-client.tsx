@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useIsMobile } from '@/lib/hooks/use-media-query';
+import GoalsWidget from '@/components/goals-widget';
 
 interface DashboardStats {
   totalCustomers: number;
@@ -32,10 +33,21 @@ interface Activity {
   created_at: string;
 }
 
+interface Goal {
+  id: string;
+  goal_type: 'revenue' | 'growth' | 'new_accounts' | 'visits';
+  target_value: number;
+  target_date: string;
+  current_value: number;
+  status: string;
+  created_at: string;
+}
+
 interface DashboardData {
   stats: DashboardStats;
   recentActivities: Activity[];
   upcomingFollowups: Activity[];
+  goals: Goal[];
 }
 
 export default function DashboardClient() {
@@ -268,6 +280,9 @@ export default function DashboardClient() {
           </div>
         </div>
       )}
+
+      {/* Goals Widget */}
+      <GoalsWidget goals={data.goals || []} />
 
       {/* Quick Actions */}
       <div style={{ ...styles.section, padding: isMobile ? '12px' : '20px' }}>

@@ -20,6 +20,7 @@ const routeRoles: Record<string, string[]> = {
   '/dashboard': ['salesperson', 'manager', 'admin'],
   '/customers': ['salesperson', 'manager', 'admin'],
   '/activities': ['salesperson', 'manager', 'admin'],
+  '/goals': ['salesperson', 'manager', 'admin'],
   '/analytics': ['manager', 'admin'],
   '/billing': ['salesperson', 'manager', 'admin'],
 };

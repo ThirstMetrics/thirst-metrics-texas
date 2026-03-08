@@ -98,6 +98,36 @@ export async function GET(request: NextRequest) {
       .eq('user_id', user.id)
       .gte('created_at', sevenDaysAgo.toISOString());
 
+    // Get active goals (up to 5)
+    const { data: goals, error: goalsError } = await supabase
+      .from('goals')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .order('target_date', { ascending: true })
+      .limit(5);
+
+    if (goalsError) {
+      console.error('[Dashboard API] Goals error:', goalsError);
+    }
+
+    // Auto-compute current_value for visit-type goals
+    const enrichedGoals = await Promise.all(
+      (goals || []).map(async (goal: any) => {
+        if (goal.goal_type === 'visits') {
+          const { count: visitCount } = await supabase
+            .from('sales_activities')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('activity_type', 'visit')
+            .gte('activity_date', goal.created_at.split('T')[0])
+            .lte('activity_date', goal.target_date);
+          return { ...goal, current_value: visitCount || 0 };
+        }
+        return goal;
+      })
+    );
+
     return NextResponse.json({
       stats: {
         totalCustomers,
@@ -106,7 +136,8 @@ export async function GET(request: NextRequest) {
         topCustomer
       },
       recentActivities: recentActivities || [],
-      upcomingFollowups: upcomingFollowups || []
+      upcomingFollowups: upcomingFollowups || [],
+      goals: enrichedGoals,
     });
 
   } catch (error) {
