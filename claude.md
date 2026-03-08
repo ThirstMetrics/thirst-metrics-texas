@@ -10,7 +10,7 @@ Sales intelligence platform for beverage distributors in Texas. Combines state l
 ## Project Requirements & Constraints
 
 ### Platform & Hosting
-- **Hosting**: Azure (startup credits available)
+- **Hosting**: Cloudways (167.71.242.157), Azure planned for scale
 - **Database**: Supabase (PostgreSQL + Auth) + DuckDB (analytics)
 - **Storage**: Supabase Storage for photos
 - **Maps**: Mapbox (100k free geocodes/month)
@@ -41,14 +41,16 @@ Sales intelligence platform for beverage distributors in Texas. Combines state l
 ## Tech Stack
 
 ```
-Frontend:     Next.js 14 (App Router) + TypeScript
+Frontend:     Next.js 15 (App Router) + TypeScript
 Backend:      Supabase (PostgreSQL + Auth + Storage)
 Analytics:    DuckDB (read-only analytical queries)
 Maps:         Mapbox GL JS + Mapbox Geocoding API
-Charts:       Recharts or Plotly
+Charts:       Recharts
 OCR:          Tesseract.js (client-side) or node-tesseract-ocr (server-side)
+Excel:        ExcelJS (for ingestion scripts — replaced xlsx due to CVE)
 Progress:     cli-progress + chalk (for ingestion scripts)
 Compression:  browser-image-compression (client-side photo compression)
+Billing:      Stripe (checkout, subscriptions, webhooks)
 ```
 
 ---
@@ -216,7 +218,7 @@ We migrated from `duckdb` and `duckdb-async` packages to the official `@duckdb/n
 
 **File Location**: `lib/duckdb/connection.ts`
 
-**Next.js Config**: Added to `serverComponentsExternalPackages` in `next.config.js` to prevent webpack bundling issues.
+**Next.js Config**: Added to `serverExternalPackages` in `next.config.js` to prevent webpack bundling issues.
 
 ```sql
 -- ============================================
@@ -342,56 +344,93 @@ thirst-metrics-texas/
 │   │   ├── page.tsx                # Customer list
 │   │   └── [permit]/page.tsx       # Customer detail
 │   ├── activities/page.tsx
-│   ├── analytics/page.tsx          # (V1.1 - post beta)
-│   └── admin/page.tsx              # (admin only)
+│   ├── analytics/page.tsx          # Advanced analytics (manager/admin)
+│   ├── goals/page.tsx              # Goal tracking
+│   ├── chains/page.tsx             # Chain/ownership analysis
+│   ├── territories/page.tsx        # Territory management (manager/admin)
+│   ├── billing/page.tsx            # Stripe billing/subscription
+│   ├── admin/page.tsx              # Admin portal
+│   └── api/
+│       ├── activities/route.ts
+│       ├── activities/[activityId]/route.ts  # PATCH/DELETE
+│       ├── analytics/route.ts
+│       ├── chains/route.ts
+│       ├── chains/[ownershipGroup]/route.ts
+│       ├── customers/route.ts
+│       ├── dashboard/route.ts
+│       ├── goals/route.ts
+│       ├── goals/[goalId]/route.ts
+│       ├── territories/route.ts
+│       ├── territories/[territoryId]/route.ts
+│       ├── territories/users/route.ts
+│       ├── stripe/checkout/route.ts
+│       ├── stripe/portal/route.ts
+│       ├── stripe/subscription/route.ts
+│       └── stripe/webhook/route.ts
 ├── components/
 │   ├── ui/                         # Shadcn components
-│   ├── customer-table.tsx
+│   ├── navbar.tsx                  # Global nav bar
+│   ├── customer-list-client.tsx
+│   ├── customer-detail-client.tsx
 │   ├── customer-map.tsx
-│   ├── activity-form.tsx
-│   ├── activity-timeline.tsx
+│   ├── activity-form.tsx           # Create + edit mode
+│   ├── activity-timeline.tsx       # With inline edit/delete
+│   ├── analytics-client.tsx        # Recharts dashboards
+│   ├── goal-form.tsx               # Create/edit goal modal
+│   ├── goals-widget.tsx            # Dashboard progress bars
+│   ├── territory-form.tsx          # Create/edit territory modal
+│   ├── dashboard-client.tsx
 │   ├── photo-upload.tsx
-│   ├── photo-viewer.tsx            # Toggle photo/OCR text view
+│   ├── photo-viewer.tsx
 │   ├── revenue-chart.tsx
 │   ├── priority-badge.tsx
 │   └── location-name.tsx
 ├── lib/
 │   ├── supabase/
 │   │   ├── client.ts               # Browser client
-│   │   └── server.ts               # Server client
+│   │   ├── server.ts               # Server client (createServerClient + createServiceClient)
+│   │   └── middleware.ts            # Middleware client
 │   ├── duckdb/
-│   │   └── connection.ts           # DuckDB connection pool
+│   │   └── connection.ts           # DuckDB singleton connection
 │   ├── mapbox/
-│   │   └── geocode.ts              # Geocoding utilities
-│   ├── ocr/
-│   │   └── tesseract.ts            # OCR processing
+│   │   └── geocode.ts
 │   ├── data/
 │   │   ├── beverage-receipts.ts
 │   │   ├── enrichments.ts
 │   │   ├── activities.ts
 │   │   ├── priorities.ts
 │   │   ├── goals.ts
+│   │   ├── territories.ts
+│   │   ├── organizations.ts
 │   │   └── locations.ts
-│   └── auth.ts                     # Role helpers
+│   ├── stripe/
+│   │   ├── client.ts
+│   │   └── prices.ts
+│   ├── billing.ts
+│   ├── hooks/
+│   │   └── use-media-query.ts      # useIsMobile(), useIsTablet()
+│   └── auth.ts
 ├── scripts/
-│   ├── ingest-all.ts               # Master ingestion script
+│   ├── ingest-all.ts
 │   ├── ingest-beverage-receipts.ts
-│   ├── ingest-enrichments.ts
+│   ├── ingest-enrichments.ts       # Uses ExcelJS
 │   ├── ingest-sales-tax.ts
-│   ├── ingest-metroplexes.ts
+│   ├── ingest-metroplexes.ts       # Uses ExcelJS
 │   ├── ingest-counties.ts
-│   └── geocode-locations.ts        # Batch geocoding
+│   └── geocode-locations.ts
 ├── docs/
-│   └── schema.sql                  # Complete schema reference
+│   ├── schema.sql
+│   ├── migration-stripe.sql
+│   └── specs/
 ├── data/
-│   └── analytics.duckdb            # DuckDB database file
-├── middleware.ts                   # Role-based route protection
+│   └── analytics.duckdb
+├── middleware.ts                   # Role-based + subscription gating
 ├── next.config.js
 ├── tsconfig.json
 ├── package.json
-├── .env.local                      # Environment variables (not committed)
-├── .env.example                    # Template for env vars
-└── claude.md                       # This file
+├── .env.local
+├── .env.example
+└── CLAUDE.md                       # This file
 ```
 
 ---
@@ -426,47 +465,23 @@ PHOTO_MAX_DIMENSION=1920
 
 ## Implementation Phases
 
-### Phase 1: Database Setup (Week 1)
-- [ ] Create Supabase project
-- [ ] Run PostgreSQL schema (users, activities, photos, goals)
-- [ ] Set up Supabase Storage bucket for photos
-- [ ] Initialize DuckDB with analytics schema
-- [ ] Create all ingestion scripts with progress indicators
-- [ ] Run initial data load (37 months for staging)
+### Phase 1–5: Core Platform (COMPLETE)
+- [x] Database setup (Supabase + DuckDB), ingestion scripts
+- [x] Auth, login/signup, role-based middleware
+- [x] Customer list/detail, activity logging, photo upload + OCR, GPS
+- [x] Mapbox maps, lazy geocoding, customer map view
+- [x] Mobile responsive, error handling, priority scoring, beta launch
 
-### Phase 2: Auth & Core UI (Week 2)
-- [ ] Configure Supabase Auth
-- [ ] Build login/signup pages
-- [ ] Create role-based middleware
-- [ ] Build dashboard layout
-- [ ] Create customer list page (table view)
+### Post-Beta Features (V1.1) — COMPLETE (March 2026)
+- [x] Goal tracking UI — CRUD API, dashboard widget, progress bars, visit auto-count
+- [x] Activity editing — PATCH/DELETE with ownership verification, inline edit/delete in timeline
+- [x] Territory management — CRUD API, admin page, user assignment (manager/admin only)
+- [x] Chain/ownership analysis — DuckDB aggregation, searchable table, detail panel with charts
+- [x] Advanced analytics — Multi-tab dashboard (overview, trends, segments, geography) with Recharts
+- [x] Stripe billing — Checkout, subscriptions, webhooks, subscription gating in middleware
 
-### Phase 3: Customer Features (Week 3)
-- [ ] Customer detail page with revenue charts
-- [ ] Activity logging form with all CRM fields
-- [ ] Photo upload with compression + OCR
-- [ ] Photo viewer with text toggle
-- [ ] GPS capture on activity creation
-
-### Phase 4: Maps (Week 4)
-- [ ] Integrate Mapbox GL JS
-- [ ] Lazy geocoding (geocode on first user interaction)
-- [ ] Customer map view with markers
-- [ ] Click marker → customer detail
-
-### Phase 5: Polish & Beta (Week 5)
-- [ ] Mobile responsive design
-- [ ] Error handling and loading states
-- [ ] Activity timeline component
-- [ ] Basic priority scoring
-- [ ] Beta user testing
-
-### Post-Beta (V1.1)
-- [ ] Goal tracking UI
-- [ ] Territory management
-- [ ] Advanced analytics page
-- [ ] Chain/ownership analysis
-- [ ] OCR search dashboard
+### Remaining (V1.2)
+- [ ] OCR search dashboard (needs more OCR data first)
 
 ---
 
@@ -577,17 +592,22 @@ const displayName = enrichment?.clean_dba_name || receipt.location_name;
 ```json
 {
   "dependencies": {
-    "next": "^14.x",
+    "next": "^15.5.x",
     "@supabase/supabase-js": "^2.x",
-    "duckdb": "^1.x",
+    "@supabase/ssr": "^0.x",
+    "stripe": "^17.x",
     "mapbox-gl": "^3.x",
     "@mapbox/mapbox-sdk": "^0.15.x",
     "tesseract.js": "^5.x",
     "browser-image-compression": "^2.x",
     "recharts": "^2.x",
-    "cli-progress": "^3.x",
-    "chalk": "^5.x",
     "date-fns": "^3.x"
+  },
+  "devDependencies": {
+    "@duckdb/node-api": "^1.x",
+    "exceljs": "^4.x",
+    "cli-progress": "^3.x",
+    "chalk": "^5.x"
   }
 }
 ```
@@ -597,17 +617,50 @@ const displayName = enrichment?.clean_dba_name || receipt.location_name;
 ## API Endpoints
 
 ```
-GET  /api/customers          - List customers (with filters)
-GET  /api/customers/[permit] - Customer detail
-GET  /api/priorities         - Ranked customer list
+# Customers
+GET  /api/customers                     - List customers (with filters)
+GET  /api/customers/[permit]/revenue    - Monthly revenue data
+GET  /api/customers/[permit]/last-activity - Most recent activity
+GET  /api/priorities                    - Ranked customer list
 
-POST /api/activities         - Create activity
-GET  /api/activities         - List activities (with filters)
+# Activities
+GET  /api/activities                    - List activities (with filters)
+POST /api/activities                    - Create activity
+PATCH /api/activities/[activityId]      - Update activity
+DELETE /api/activities/[activityId]     - Delete activity
 
-POST /api/photos/upload      - Upload + OCR photo
-GET  /api/photos/[id]        - Get photo + OCR text
+# Goals
+GET  /api/goals                         - List goals (?status= filter)
+POST /api/goals                         - Create goal
+PATCH /api/goals/[goalId]               - Update goal
+DELETE /api/goals/[goalId]              - Delete goal
 
-POST /api/geocode            - Geocode a location (lazy)
+# Territories (manager/admin)
+GET  /api/territories                   - List territories
+POST /api/territories                   - Create territory (admin)
+GET  /api/territories/[id]              - Territory detail
+PATCH /api/territories/[id]             - Update territory (admin)
+DELETE /api/territories/[id]            - Delete territory (admin)
+GET  /api/territories/users             - List users for assignment
+
+# Analytics & Chains
+GET  /api/analytics                     - Analytics data (?view=overview|trends|segments|geography)
+GET  /api/chains                        - Chain list (?sort=&segment=&search=)
+GET  /api/chains/[ownershipGroup]       - Chain detail with locations
+
+# Photos & OCR
+POST /api/photos                        - Upload + OCR photo
+GET  /api/photos/[id]/sections          - Photo OCR sections
+
+# Billing (Stripe)
+POST /api/stripe/checkout               - Create checkout session
+POST /api/stripe/portal                 - Create billing portal session
+GET  /api/stripe/subscription           - Get subscription status
+POST /api/stripe/webhook                - Stripe webhook handler
+
+# Other
+GET  /api/dashboard                     - Dashboard aggregated stats + goals
+POST /api/geocode                       - Geocode a location (lazy)
 ```
 
 ---
@@ -616,7 +669,7 @@ POST /api/geocode            - Geocode a location (lazy)
 
 - **Texas-specific**: The data source is unique to Texas, but the CRM/GPS features could become a standalone product
 - **Mapbox budget**: Track monthly usage, use spare credits for mapping other states
-- **V2 features**: OCR search dashboard, chain analytics, native mobile app
+- **V2 features**: OCR search dashboard, native mobile app
 
 ---
 
@@ -661,9 +714,20 @@ POST /api/geocode            - Geocode a location (lazy)
 - Run in screen session, expect 1-2+ hours
 - Don't assume it failed just because it's slow
 
+**8. Next.js 15 async params and searchParams (March 2026)**
+- Route handler `params` must be `Promise<>`: `{ params }: { params: Promise<{ id: string }> }` then `const { id } = await params`
+- Page `searchParams` must be `Promise<>`: `{ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }`
+- `ssr: false` in `next/dynamic` is NOT allowed in Server Components — must use `'use client'` or move dynamic import to a client component
+- `serverComponentsExternalPackages` moved to `serverExternalPackages` in `next.config.js`
+
+**9. xlsx package is abandoned — use ExcelJS instead**
+- The `xlsx` npm package has unfixed prototype pollution and ReDoS CVEs
+- Replaced with `exceljs` in ingestion scripts (March 2026)
+- ExcelJS API: `new ExcelJS.Workbook()` → `await workbook.xlsx.readFile(path)` → `worksheet.eachRow()` to iterate rows
+
 ---
 
 ## Review Schedule
 - Review this file: Weekly during active development
-- Last updated: January 25, 2026
-- Updated by: Planning session with Claude
+- Last updated: March 7, 2026
+- Updated by: Sprint implementation session with Claude
