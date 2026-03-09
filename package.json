@@ -17,7 +17,9 @@
     "ingest:enrichments": "tsx scripts/ingest-enrichments.ts",
     "ingest:beverage-receipts": "tsx scripts/ingest-beverage-receipts.ts",
     "init:duckdb": "tsx scripts/init-duckdb.ts",
-    "test:duckdb": "tsx scripts/test-duckdb.ts"
+    "test:duckdb": "tsx scripts/test-duckdb.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
@@ -43,11 +45,14 @@
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^5.1.4",
     "docx": "^9.6.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.5.12",
     "exceljs": "^4.4.0",
+    "jsdom": "^28.1.0",
     "tsx": "^4.16.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.18"
   }
 }
