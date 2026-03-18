@@ -507,9 +507,13 @@ export default function AdminClient() {
 
   const startPolling = useCallback(() => {
     stopPolling();
-    // Poll immediately, then every 5 seconds
-    pollIngestionStatus();
-    pollingRef.current = setInterval(pollIngestionStatus, 5000);
+    // Delay first poll to let the screen session start and create the lock file
+    const firstPollDelay = setTimeout(() => {
+      pollIngestionStatus();
+      pollingRef.current = setInterval(pollIngestionStatus, 5000);
+    }, 3000);
+    // Store the timeout so it can be cleared on unmount
+    pollingRef.current = firstPollDelay as unknown as ReturnType<typeof setInterval>;
   }, [stopPolling, pollIngestionStatus]);
 
   // Clean up polling on unmount

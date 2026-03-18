@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
           e.ownership_group,
           COUNT(DISTINCT m.tabc_permit_number) AS location_count,
           SUM(m.total_receipts) AS total_revenue,
-          LIST_DISTINCT(ARRAY_REMOVE(LIST(e.industry_segment), NULL)) AS industry_segments
+          LIST_DISTINCT(LIST(e.industry_segment) FILTER (WHERE e.industry_segment IS NOT NULL)) AS industry_segments
         FROM mixed_beverage_receipts m
         INNER JOIN location_enrichments e
           ON m.tabc_permit_number = e.tabc_permit_number
