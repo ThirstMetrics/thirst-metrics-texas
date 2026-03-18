@@ -30,8 +30,26 @@ const routeRoles: Record<string, string[]> = {
 // Subscription statuses that allow app access
 const allowedStatuses = ['active', 'trialing', 'past_due'];
 
+// Marketing domains serve only the landing page — all other paths redirect to app subdomain
+const MARKETING_DOMAINS = new Set(['whiskeyrivertx.com', 'www.whiskeyrivertx.com']);
+const APP_DOMAIN = 'app.whiskeyrivertx.com';
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get('host') || '';
+
+  // Handle marketing domain routing
+  if (MARKETING_DOMAINS.has(host)) {
+    if (pathname === '/') {
+      const response = NextResponse.next();
+      response.headers.set('x-pathname', pathname);
+      return response;
+    }
+    // Any non-root path on marketing domain → redirect to app subdomain
+    const appUrl = new URL(`https://${APP_DOMAIN}${pathname}`);
+    appUrl.search = request.nextUrl.search;
+    return NextResponse.redirect(appUrl);
+  }
 
   // Allow public routes
   if (publicRoutes.some(route => pathname === route || pathname.startsWith(route + '/'))) {

@@ -69,7 +69,7 @@ function LoginForm() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.title}>Thirst Metrics Texas</h1>
+        <h1 style={styles.title}>Whiskey River TX</h1>
         <p style={styles.subtitle}>Sign in to your account</p>
 
         {error && (

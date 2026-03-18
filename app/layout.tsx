@@ -11,8 +11,8 @@ import NavBarWrapper from '@/components/navbar-wrapper';
 import MobileBottomSpacer from '@/components/mobile-bottom-spacer';
 
 export const metadata: Metadata = {
-  title: 'Thirst Metrics Texas',
-  description: 'Sales intelligence platform for beverage distributors in Texas',
+  title: 'Whiskey River TX',
+  description: 'Sales intelligence platform for Texas beverage distributors',
   icons: {
     icon: '/favicon.svg',
   },
