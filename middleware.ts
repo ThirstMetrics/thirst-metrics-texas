@@ -30,26 +30,20 @@ const routeRoles: Record<string, string[]> = {
 // Subscription statuses that allow app access
 const allowedStatuses = ['active', 'trialing', 'past_due'];
 
-// Marketing domains serve only the landing page — all other paths redirect to app subdomain
+// Marketing domains proxy to the separate landing page app on port 3004
 const MARKETING_DOMAINS = new Set(['whiskeyrivertx.com', 'www.whiskeyrivertx.com']);
-const APP_DOMAIN = 'app.whiskeyrivertx.com';
+const LANDING_PAGE_ORIGIN = 'http://localhost:3004';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
   const host = rawHost.split(':')[0].toLowerCase();
 
-  // Handle marketing domain routing
+  // Handle marketing domain — proxy all traffic to the landing page app
   if (MARKETING_DOMAINS.has(host)) {
-    if (pathname === '/') {
-      const response = NextResponse.next();
-      response.headers.set('x-pathname', pathname);
-      return response;
-    }
-    // Any non-root path on marketing domain → redirect to app subdomain
-    const appUrl = new URL(`https://${APP_DOMAIN}${pathname}`);
-    appUrl.search = request.nextUrl.search;
-    return NextResponse.redirect(appUrl);
+    const target = new URL(pathname, LANDING_PAGE_ORIGIN);
+    target.search = request.nextUrl.search;
+    return NextResponse.rewrite(target);
   }
 
   // Allow public routes
