@@ -39,11 +39,21 @@ export async function middleware(request: NextRequest) {
   const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
   const host = rawHost.split(':')[0].toLowerCase();
 
-  // Handle marketing domain — proxy all traffic to the landing page app
+  // Handle marketing domain — proxy ALL traffic (pages, assets, API) to the landing page app
   if (MARKETING_DOMAINS.has(host)) {
     const target = new URL(pathname, LANDING_PAGE_ORIGIN);
     target.search = request.nextUrl.search;
     return NextResponse.rewrite(target);
+  }
+
+  // For SaaS domain: skip static assets (let Next.js serve them directly)
+  if (
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/api/') ||
+    pathname === '/favicon.ico' ||
+    /\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/.test(pathname)
+  ) {
+    return NextResponse.next();
   }
 
   // Allow public routes
@@ -127,15 +137,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public files (public folder)
-     */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  // Match all paths — marketing domain needs full proxying (including _next/static, images)
+  // SaaS static assets are filtered early in the middleware function above
+  matcher: ['/((?!_next/webpack-hmr).*)'],
 };
