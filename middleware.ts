@@ -64,10 +64,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    // Get user role and org from database
+    // Get user role from database
     const { data: userData } = await supabase
       .from('users')
-      .select('role, org_id')
+      .select('role')
       .eq('id', user.id)
       .single();
 
@@ -83,20 +83,28 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Subscription gating — skip for billing-exempt routes
+    // Subscription gating — only if organizations table exists
     const isBillingExempt = billingExemptRoutes.some(
       (route) => pathname === route || pathname.startsWith(route + '/')
     );
 
-    if (!isBillingExempt && userData?.org_id) {
-      const { data: org } = await supabase
-        .from('organizations')
-        .select('subscription_status')
-        .eq('id', userData.org_id)
+    if (!isBillingExempt) {
+      const { data: orgData } = await supabase
+        .from('users')
+        .select('org_id')
+        .eq('id', user.id)
         .single();
 
-      if (org && !allowedStatuses.includes(org.subscription_status)) {
-        return NextResponse.redirect(new URL('/billing', request.url));
+      if (orgData?.org_id) {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('subscription_status')
+          .eq('id', orgData.org_id)
+          .single();
+
+        if (org && !allowedStatuses.includes(org.subscription_status)) {
+          return NextResponse.redirect(new URL('/billing', request.url));
+        }
       }
     }
 
