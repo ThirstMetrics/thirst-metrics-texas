@@ -36,7 +36,8 @@ const APP_DOMAIN = 'app.whiskeyrivertx.com';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const host = request.headers.get('host') || '';
+  const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
+  const host = rawHost.split(':')[0].toLowerCase();
 
   // Handle marketing domain routing
   if (MARKETING_DOMAINS.has(host)) {
