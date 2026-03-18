@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Skip type checking during build on constrained servers (OOM prevention)
+  // Types are checked locally before commits
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
   transpilePackages: ['@thirst-metrics/ocr-engine'],
   serverExternalPackages: [
     '@duckdb/node-api',
