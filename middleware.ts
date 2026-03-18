@@ -30,31 +30,8 @@ const routeRoles: Record<string, string[]> = {
 // Subscription statuses that allow app access
 const allowedStatuses = ['active', 'trialing', 'past_due'];
 
-// Marketing domains proxy to the separate landing page app on port 3004
-const MARKETING_DOMAINS = new Set(['whiskeyrivertx.com', 'www.whiskeyrivertx.com']);
-const LANDING_PAGE_ORIGIN = 'http://localhost:3004';
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
-  const host = rawHost.split(':')[0].toLowerCase();
-
-  // Handle marketing domain — proxy ALL traffic (pages, assets, API) to the landing page app
-  if (MARKETING_DOMAINS.has(host)) {
-    const target = new URL(pathname, LANDING_PAGE_ORIGIN);
-    target.search = request.nextUrl.search;
-    return NextResponse.rewrite(target);
-  }
-
-  // For SaaS domain: skip static assets (let Next.js serve them directly)
-  if (
-    pathname.startsWith('/_next/') ||
-    pathname.startsWith('/api/') ||
-    pathname === '/favicon.ico' ||
-    /\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/.test(pathname)
-  ) {
-    return NextResponse.next();
-  }
 
   // Allow public routes
   if (publicRoutes.some(route => pathname === route || pathname.startsWith(route + '/'))) {
@@ -137,7 +114,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Match all paths — marketing domain needs full proxying (including _next/static, images)
-  // SaaS static assets are filtered early in the middleware function above
-  matcher: ['/((?!_next/webpack-hmr).*)'],
+  matcher: [
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 };
