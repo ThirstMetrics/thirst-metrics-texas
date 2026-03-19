@@ -50,6 +50,24 @@ const AdminOCRReview = dynamic(() => import('@/components/admin-ocr-review'), {
   ),
 });
 
+const AdminContent = dynamic(() => import('@/components/admin-content'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ padding: '60px 20px', textAlign: 'center', color: '#64748b' }}>
+      <div style={{
+        width: '36px',
+        height: '36px',
+        border: '4px solid #f3f3f3',
+        borderTop: '4px solid #0d7377',
+        borderRadius: '50%',
+        animation: 'spin 1s linear infinite',
+        margin: '0 auto 12px',
+      }} />
+      Loading content manager...
+    </div>
+  ),
+});
+
 // ============================================
 // Types
 // ============================================
@@ -121,7 +139,7 @@ interface IngestionCheckResult {
   instructions: string;
 }
 
-type TabKey = 'overview' | 'users' | 'ingestion' | 'activity' | 'enrichments' | 'ocr';
+type TabKey = 'overview' | 'users' | 'ingestion' | 'activity' | 'enrichments' | 'ocr' | 'content';
 type UserSortField = 'email' | 'role' | 'activityCount';
 type SortDir = 'asc' | 'desc';
 
@@ -144,6 +162,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'activity', label: 'Activity Analytics' },
   { key: 'enrichments', label: 'Enrichments' },
   { key: 'ocr', label: 'OCR Review' },
+  { key: 'content', label: 'Content' },
 ];
 
 // ============================================
@@ -2079,6 +2098,7 @@ export default function AdminClient() {
         {activeTab === 'activity' && renderActivityAnalytics()}
         {activeTab === 'enrichments' && <AdminEnrichments />}
         {activeTab === 'ocr' && <AdminOCRReview />}
+        {activeTab === 'content' && <AdminContent />}
       </div>
     </div>
   );
