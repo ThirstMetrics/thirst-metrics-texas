@@ -28,7 +28,7 @@ interface Article {
   body: string | null;
   cover_image_url: string | null;
   featured: boolean;
-  published: boolean;
+  published_at: string | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -42,7 +42,7 @@ interface ArticleFormData {
   body: string;
   cover_image_url: string;
   featured: boolean;
-  published: boolean;
+  publish: boolean;
 }
 
 interface GrowingCounty {
@@ -106,7 +106,7 @@ const STATUS_BADGE_COLORS: Record<ArticleStatus, { bg: string; color: string }> 
 function getArticleStatus(article: Article): ArticleStatus {
   if (article.archived_at) return 'archived';
   if (article.featured) return 'featured';
-  if (article.published) return 'published';
+  if (article.published_at) return 'published';
   return 'draft';
 }
 
@@ -144,7 +144,7 @@ const EMPTY_FORM: ArticleFormData = {
   body: '',
   cover_image_url: '',
   featured: false,
-  published: false,
+  publish: false,
 };
 
 // ============================================
@@ -249,7 +249,7 @@ export default function AdminContent() {
       body: article.body ?? '',
       cover_image_url: article.cover_image_url ?? '',
       featured: article.featured,
-      published: article.published,
+      publish: !!article.published_at,
     });
     setSlugManuallyEdited(true); // don't auto-overwrite slug when editing
     setFormError(null);
@@ -299,10 +299,20 @@ export default function AdminContent() {
         ? `/api/admin/content/${editingId}`
         : '/api/admin/content';
       const method = editingId ? 'PATCH' : 'POST';
+      const payload = {
+        title: form.title,
+        slug: form.slug,
+        article_type: form.article_type,
+        excerpt: form.excerpt || null,
+        body: form.body,
+        cover_image_url: form.cover_image_url || null,
+        featured: form.featured,
+        published_at: form.publish ? new Date().toISOString() : null,
+      };
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -826,8 +836,8 @@ export default function AdminContent() {
               <label style={cs.checkboxLabel}>
                 <input
                   type="checkbox"
-                  checked={form.published}
-                  onChange={(e) => setForm((prev) => ({ ...prev, published: e.target.checked }))}
+                  checked={form.publish}
+                  onChange={(e) => setForm((prev) => ({ ...prev, publish: e.target.checked }))}
                   style={cs.checkbox}
                 />
                 Publish
