@@ -635,7 +635,7 @@ export default function AdminContent() {
                     Market Review
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                    {suggestions.market_review?.period ?? 'Latest month'} — top growing counties
+                    {suggestions.market_review.period} — top growing counties
                   </div>
                 </div>
                 <button onClick={prefillMarketReview} style={cs.useDataBtn}>
@@ -643,9 +643,9 @@ export default function AdminContent() {
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
-                {(suggestions.market_review?.top_growing_counties ?? suggestions.market_review?.top_counties ?? []).slice(0, 5).map((c) => (
-                  <div key={c.county ?? c.county_name} style={cs.suggestionRow}>
-                    <span style={{ fontSize: '12px', color: '#334155', fontWeight: 500 }}>{c.county ?? c.county_name} County</span>
+                {suggestions.market_review.top_growing_counties.slice(0, 5).map((c) => (
+                  <div key={c.county} style={cs.suggestionRow}>
+                    <span style={{ fontSize: '12px', color: '#334155', fontWeight: 500 }}>{c.county} County</span>
                     <span style={{
                       fontSize: '12px',
                       fontWeight: 600,
@@ -666,7 +666,7 @@ export default function AdminContent() {
                     Top New Accounts
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                    {suggestions.top_new_accounts?.period ?? 'Latest 2 months'}
+                    {suggestions.top_new_accounts.period}
                   </div>
                 </div>
                 <button onClick={prefillTopNewAccounts} style={cs.useDataBtn}>
@@ -674,13 +674,13 @@ export default function AdminContent() {
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
-                {(suggestions.top_new_accounts?.accounts ?? suggestions.top_new_accounts ?? []).slice(0, 5).map((a) => (
+                {suggestions.top_new_accounts.accounts.slice(0, 5).map((a) => (
                   <div key={a.tabc_permit_number} style={cs.suggestionRow}>
                     <span style={{ fontSize: '12px', color: '#334155', fontWeight: 500 }}>
-                      {a.name ?? a.location_name} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({a.city ?? a.location_city})</span>
+                      {a.name} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({a.city})</span>
                     </span>
                     <span style={{ fontSize: '12px', fontWeight: 600, color: '#065f46' }}>
-                      {formatCurrency(a.first_month_revenue ?? a.total_receipts)}
+                      {formatCurrency(a.first_month_revenue)}
                     </span>
                   </div>
                 ))}
@@ -707,7 +707,7 @@ export default function AdminContent() {
                 <div>
                   <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Revenue</div>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-                    {formatCurrency(suggestions.venue_of_the_month.total_revenue ?? suggestions.venue_of_the_month.revenue)}
+                    {formatCurrency(suggestions.venue_of_the_month.total_revenue)}
                   </div>
                 </div>
                 <div>
