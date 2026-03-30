@@ -312,20 +312,19 @@ async function getVenueOfTheMonth() {
       AND prior.rev > 30000
       AND ((recent.rev - prior.rev) / prior.rev) > 0.30
     ORDER BY recent.rev DESC
-    LIMIT 1
+    LIMIT 3
   `);
 
-  if (!rows.length) return null;
+  if (!rows.length) return [];
 
-  const r = rows[0];
-  return {
+  return rows.map((r) => ({
     tabc_permit_number: r.permit,
     name: r.name,
     city: r.city,
     county: r.county,
     total_revenue: r.recent_rev,
     growth_pct: r.growth_pct,
-  };
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +366,7 @@ export async function GET(request: NextRequest) {
       result.venue_of_the_month = venueOfMonth.value;
     } else {
       console.error('[Content Suggestions] venue_of_the_month error:', venueOfMonth.reason);
-      result.venue_of_the_month = null;
+      result.venue_of_the_month = [];
     }
 
     return NextResponse.json(result);

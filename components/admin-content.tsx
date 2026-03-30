@@ -77,7 +77,7 @@ interface Suggestions {
     accounts: NewAccount[];
     period: string;
   };
-  venue_of_the_month: VenueSuggestion;
+  venue_of_the_month: VenueSuggestion[];
 }
 
 // ============================================
@@ -421,9 +421,7 @@ export default function AdminContent() {
     setShowForm(true);
   };
 
-  const prefillVenueOfMonth = () => {
-    if (!suggestions) return;
-    const v = suggestions.venue_of_the_month;
+  const prefillVenueOfMonth = (v: VenueSuggestion) => {
     const title = `Venue of the Month: ${v.name}`;
     const body = [
       `## ${v.name}`,
@@ -690,46 +688,38 @@ export default function AdminContent() {
               </div>
             </div>
 
-            {/* Venue of the Month */}
-            {suggestions.venue_of_the_month && (
+            {/* Venue of the Month — 3 candidates */}
+            {suggestions.venue_of_the_month && suggestions.venue_of_the_month.length > 0 && (
             <div style={cs.suggestionCard}>
-              <div style={cs.suggestionCardHeader}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
-                    Venue of the Month
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                    {suggestions.venue_of_the_month.name} — {suggestions.venue_of_the_month.city}
-                  </div>
-                </div>
-                <button onClick={prefillVenueOfMonth} style={cs.useDataBtn}>
-                  Use this data
-                </button>
+              <div style={{ fontWeight: 600, fontSize: '13px', color: '#1e293b', marginBottom: '8px' }}>
+                Venue of the Month — pick one
               </div>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Revenue</div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-                    {formatCurrency(suggestions.venue_of_the_month.total_revenue)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Growth</div>
-                  <div style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: (suggestions.venue_of_the_month.growth_pct ?? 0) >= 0 ? '#065f46' : '#b91c1c',
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {suggestions.venue_of_the_month.map((v) => (
+                  <div key={v.tabc_permit_number} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fafbfc',
                   }}>
-                    {(suggestions.venue_of_the_month.growth_pct ?? 0) >= 0 ? '+' : ''}
-                    {(suggestions.venue_of_the_month.growth_pct ?? 0).toFixed(1)}%
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>{v.name}</div>
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                        {v.city}, {v.county} County
+                      </div>
+                      <div style={{ display: 'flex', gap: '16px', marginTop: '4px' }}>
+                        <span style={{ fontSize: '12px', color: '#334155', fontWeight: 500 }}>{formatCurrency(v.total_revenue)}</span>
+                        <span style={{
+                          fontSize: '12px', fontWeight: 600,
+                          color: (v.growth_pct ?? 0) >= 0 ? '#065f46' : '#b91c1c',
+                        }}>
+                          {(v.growth_pct ?? 0) >= 0 ? '+' : ''}{(v.growth_pct ?? 0).toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                    <button onClick={() => prefillVenueOfMonth(v)} style={cs.useDataBtn}>
+                      Use this
+                    </button>
                   </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>County</div>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-                    {suggestions.venue_of_the_month.county}
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
             )}
