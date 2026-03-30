@@ -881,7 +881,7 @@ export default function AdminClient() {
     if (!stats) return null;
 
     const { system, userStats, activityStats, dataFreshness } = stats;
-    const last6Months = dataFreshness.recordsByMonth.slice(-6);
+    const last6Months = (dataFreshness?.recordsByMonth ?? []).slice(-6);
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px' }}>
@@ -1216,9 +1216,9 @@ export default function AdminClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {ingestionData.recordsByMonth.slice(-6).map((item) => {
+                  {(ingestionData.recordsByMonth ?? []).slice(-6).map((item) => {
                     const maxCount = Math.max(
-                      ...ingestionData.recordsByMonth.slice(-6).map((m) => m.count),
+                      ...(ingestionData.recordsByMonth ?? []).slice(-6).map((m) => m.count),
                       1
                     );
                     const pct = (item.count / maxCount) * 100;
