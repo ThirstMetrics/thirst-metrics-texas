@@ -195,14 +195,16 @@ async function getTopNewAccounts() {
     SELECT r.tabc_permit_number,
            COALESCE(e.clean_dba_name, MAX(r.location_name)) AS name,
            MAX(r.location_city) AS city,
-           COALESCE(co.county_name, MAX(r.location_county)) AS county,
+           COALESCE(
+             (SELECT co.county_name FROM counties co WHERE co.county_code = MAX(r.location_county_code)),
+             MAX(r.location_county)
+           ) AS county,
            CAST(SUM(r.total_receipts) AS DOUBLE) AS total_rev
     FROM mixed_beverage_receipts r
     JOIN new_permits n ON r.tabc_permit_number = n.tabc_permit_number
     LEFT JOIN location_enrichments e ON r.tabc_permit_number = e.tabc_permit_number
-    LEFT JOIN counties co ON r.location_county_code = co.county_code
     WHERE r.total_receipts > 0
-    GROUP BY r.tabc_permit_number, e.clean_dba_name, co.county_name
+    GROUP BY r.tabc_permit_number, e.clean_dba_name
     HAVING SUM(r.total_receipts) > 10000
     ORDER BY total_rev DESC
     LIMIT 15
@@ -281,14 +283,16 @@ async function getVenueOfTheMonth() {
       SELECT r.tabc_permit_number AS permit,
              COALESCE(e.clean_dba_name, MAX(r.location_name)) AS name,
              MAX(r.location_city) AS city,
-             COALESCE(co.county_name, MAX(r.location_county)) AS county,
+             COALESCE(
+               (SELECT co.county_name FROM counties co WHERE co.county_code = MAX(r.location_county_code)),
+               MAX(r.location_county)
+             ) AS county,
              CAST(SUM(r.total_receipts) AS DOUBLE) AS rev
       FROM mixed_beverage_receipts r
       LEFT JOIN location_enrichments e ON r.tabc_permit_number = e.tabc_permit_number
-      LEFT JOIN counties co ON r.location_county_code = co.county_code
       WHERE r.obligation_end_date >= DATE '${recentStart}'
         AND r.obligation_end_date < DATE '${recentEnd}'
-      GROUP BY r.tabc_permit_number, e.clean_dba_name, co.county_name
+      GROUP BY r.tabc_permit_number, e.clean_dba_name
     ),
     prior AS (
       SELECT r.tabc_permit_number AS permit,

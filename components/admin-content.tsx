@@ -646,12 +646,15 @@ export default function AdminContent() {
                 {suggestions.market_review.top_growing_counties.slice(0, 5).map((c) => (
                   <div key={c.county} style={cs.suggestionRow}>
                     <span style={{ fontSize: '12px', color: '#334155', fontWeight: 500 }}>{c.county} County</span>
-                    <span style={{
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: c.growth_pct >= 0 ? '#065f46' : '#b91c1c',
-                    }}>
-                      {c.growth_pct >= 0 ? '+' : ''}{c.growth_pct.toFixed(1)}%
+                    <span style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>{formatCurrency(c.total_revenue)}</span>
+                      <span style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: c.growth_pct >= 0 ? '#065f46' : '#b91c1c',
+                      }}>
+                        {c.growth_pct >= 0 ? '+' : ''}{c.growth_pct.toFixed(1)}%
+                      </span>
                     </span>
                   </div>
                 ))}
